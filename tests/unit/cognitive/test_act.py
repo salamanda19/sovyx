@@ -643,10 +643,13 @@ class TestReActLoop:
             _perception("hi"),
         )
 
-        # Should have been called max_depth times for re-invocations
-        assert mock_router.generate.call_count == 2
+        # max_depth re-invocations + one tools-off completion turn
+        assert mock_router.generate.call_count == 3
+        assert mock_router.generate.call_args_list[-1].kwargs.get("tools") is None
         # 1 initial + 1 from first re-invoke (second re-invoke's calls not executed)
         assert len(result.tool_calls_made) == 2
+        assert result.degraded is True
+        assert "could not finish a full answer" in result.response_text
 
     async def test_reinvoke_failure_fallback(self) -> None:
         """LLM re-invocation failure returns tool results summary."""
@@ -801,6 +804,117 @@ class TestReActLoop:
 
 
 class TestSummarizeToolResults:
+
+    async def test_unfinished_retry_reply_triggers_completion(self) -> None:
+        """Retry chatter after tools gets a tools-off rewrite."""
+        mock_router = AsyncMock()
+        mock_router.generate = AsyncMock(
+            side_effect=[
+                _response(
+                    content="The multi-city call failed — let me try single-city API calls.",
+                    finish_reason="stop",
+                ),
+                _response(
+                    content="Fukuoka will be mild next week.",
+                    finish_reason="stop",
+                ),
+            ],
+        )
+
+        mock_mgr = AsyncMock()
+        mock_mgr.plugin_count = 1
+        mock_mgr.get_tool_definitions = MagicMock(return_value=[])
+        mock_mgr.execute = AsyncMock(
+            return_value=MagicMock(
+                name="web-intelligence.search",
+                output="Found 5 results",
+                success=True,
+            ),
+        )
+
+        executor = ToolExecutor(plugin_manager=mock_mgr)
+        act = ActPhase(tool_executor=executor, llm_router=mock_router)
+
+        initial_response = _response(
+            content="Checking.",
+            finish_reason="tool_use",
+            tool_calls=[
+                ToolCall(
+                    id="tc1",
+                    function_name="web-intelligence.search",
+                    arguments={"query": "Kyushu weather"},
+                ),
+            ],
+        )
+
+        result = await act.process(
+            initial_response,
+            [{"role": "user", "content": "Kyushu weather"}],
+            _perception("Kyushu weather"),
+        )
+
+        assert mock_router.generate.call_count == 2
+        assert mock_router.generate.call_args_list[-1].kwargs.get("tools") is None
+        assert result.response_text == "Fukuoka will be mild next week."
+        assert result.degraded is False
+
+    async def test_empty_completion_uses_degraded_note(self) -> None:
+        """Empty tools-off completion falls back to a fixed note."""
+        mock_router = AsyncMock()
+        mock_router.generate = AsyncMock(
+            side_effect=[
+                _response(content="", finish_reason="stop"),
+                _response(content="", finish_reason="stop"),
+            ],
+        )
+
+        mock_mgr = AsyncMock()
+        mock_mgr.plugin_count = 1
+        mock_mgr.get_tool_definitions = MagicMock(return_value=[])
+        mock_mgr.execute = AsyncMock(
+            return_value=MagicMock(
+                name="web-intelligence.search",
+                output="snippet about Fukuoka",
+                success=True,
+            ),
+        )
+
+        executor = ToolExecutor(plugin_manager=mock_mgr)
+        act = ActPhase(tool_executor=executor, llm_router=mock_router)
+
+        initial_response = _response(
+            content="",
+            finish_reason="tool_use",
+            tool_calls=[
+                ToolCall(
+                    id="tc1",
+                    function_name="web-intelligence.search",
+                    arguments={"query": "weather"},
+                ),
+            ],
+        )
+
+        result = await act.process(
+            initial_response,
+            [{"role": "user", "content": "weather"}],
+            _perception("weather"),
+        )
+
+        assert result.degraded is True
+        assert "could not finish a full answer" in result.response_text
+        assert "snippet about Fukuoka" in result.response_text
+
+    async def test_is_unfinished_tool_reply_helpers(self) -> None:
+        assert ActPhase._is_unfinished_tool_reply("") is True
+        assert ActPhase._is_unfinished_tool_reply(
+            "The multi-city call failed — let me try single-city API calls."
+        )
+        assert ActPhase._is_unfinished_tool_reply(
+            "Direct API call failed — let me try again and also pull a forecast page:"
+        )
+        assert ActPhase._is_unfinished_tool_reply("Fukuoka will be mild next week.") is False
+
+
     """Tests for _summarize_tool_results."""
 
     def test_empty(self) -> None:

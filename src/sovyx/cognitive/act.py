@@ -5,6 +5,11 @@ injects results back, and re-invokes the LLM (max iterations configurable).
 Financial gate integration preserved — financial tool calls require user
 confirmation before execution.
 
+When the loop ends unfinished (still requesting tools, empty body, or
+retry chatter like "let me try again"), ActPhase does one tools-disabled
+completion turn, then falls back to a fixed degraded note built from
+tool results rather than persisting the unfinished sentence.
+
 Spec: SPE-003 §4 (ReAct pattern), SPE-008 §6 (PluginManager dispatch)
 """
 
@@ -12,6 +17,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import re
 from typing import TYPE_CHECKING, Any
 
 from sovyx.llm.models import ToolCall, ToolResult
@@ -28,6 +34,12 @@ if TYPE_CHECKING:
     from sovyx.plugins.manager import PluginManager
 
 logger = get_logger(__name__)
+
+# Mid-retry chatter that must not become the final user-visible reply.
+_RETRY_REPLY_RE = re.compile(
+    r"(let me try|i'?ll try|i will try|try again|trying again|let me check again)",
+    re.IGNORECASE,
+)
 
 
 @dataclasses.dataclass
@@ -366,11 +378,14 @@ class ActPhase:
         """
         current_response = llm_response
         all_tool_calls: list[ToolCall] = []
+        all_results: list[ToolResult] = []
         messages: list[dict[str, Any]] = list(assembled_messages)
 
         for iteration in range(self._tools.max_depth):
             tool_calls = current_response.tool_calls
-            if not tool_calls:
+            # Require a real list — MagicMock tool_calls is truthy and would
+            # spin the loop when tests omit a configured LLM router.
+            if not isinstance(tool_calls, list) or not tool_calls:
                 break
 
             # Financial gate: check before execution
@@ -387,6 +402,7 @@ class ActPhase:
             # Execute tool calls
             results = await self._tools.execute(tool_calls)
             all_tool_calls.extend(tool_calls)
+            all_results.extend(results)
 
             logger.info(
                 "react_iteration",
@@ -447,7 +463,7 @@ class ActPhase:
             except Exception as e:  # noqa: BLE001
                 logger.error("react_reinvoke_failed", error=str(e))
                 # Fall back to last known content or tool results summary
-                fallback = self._summarize_tool_results(results)
+                fallback = self._degraded_tool_note(all_results)
                 text = self._apply_pii_guard(fallback)
                 return ActionResult(
                     response_text=text,
@@ -457,8 +473,41 @@ class ActPhase:
                     degraded=True,
                 )
 
-        # Final response (after loop ends or no more tool_calls)
-        response_text = current_response.content or ""
+        response_text = self._text_content(current_response)
+        degraded = False
+        pending_tools = current_response.tool_calls
+        still_wants_tools = isinstance(pending_tools, list) and bool(pending_tools)
+
+        # Tools ran but the model is still mid-plan (more tool_calls, empty
+        # body, or "let me try again" chatter). One tools-off turn to write
+        # a real reply; if that is still unfinished, use a fixed note.
+        needs_completion = bool(all_tool_calls) and (
+            still_wants_tools or self._is_unfinished_tool_reply(response_text)
+        )
+        if needs_completion:
+            try:
+                current_response = await self._router.generate(
+                    messages=messages,
+                    tools=None,
+                    phase="act",
+                    mind_id=mind_id,
+                )
+                response_text = self._text_content(current_response)
+            except Exception as e:  # noqa: BLE001
+                logger.error("react_final_completion_failed", error=str(e))
+                response_text = ""
+
+            pending_after = current_response.tool_calls
+            still_wants_tools_after = isinstance(pending_after, list) and bool(pending_after)
+            if self._is_unfinished_tool_reply(response_text) or still_wants_tools_after:
+                response_text = self._degraded_tool_note(all_results)
+                degraded = True
+                logger.info(
+                    "react_unfinished_reply_replaced",
+                    tool_calls=len(all_tool_calls),
+                    result_count=len(all_results),
+                )
+
         text, was_filtered, reason = await self._apply_output_guard(response_text, mind_id)
         text = self._apply_pii_guard(text)
 
@@ -469,6 +518,7 @@ class ActPhase:
             tool_calls_made=all_tool_calls,
             output_filtered=was_filtered,
             filter_reason=reason,
+            degraded=degraded,
         )
 
     def _get_tools_for_reinvocation(self) -> list[dict[str, object]] | None:
@@ -485,6 +535,29 @@ class ActPhase:
         )
 
     @staticmethod
+    def _text_content(response: LLMResponse) -> str:
+        """Return response.content when it is a real string."""
+        content = response.content
+        return content if isinstance(content, str) else ""
+
+    @staticmethod
+    def _is_unfinished_tool_reply(text: str) -> bool:
+        """True when tool-loop text is empty or mid-retry chatter."""
+        if not isinstance(text, str):
+            return True
+        stripped = text.strip()
+        if not stripped:
+            return True
+        if _RETRY_REPLY_RE.search(stripped):
+            return True
+        # Short failure announcement ending mid-sentence (often trailing ':').
+        if stripped.endswith(":") and len(stripped) < 200:
+            lower = stripped.lower()
+            if "fail" in lower or "try" in lower or "pull" in lower:
+                return True
+        return False
+
+    @staticmethod
     def _summarize_tool_results(results: list[ToolResult]) -> str:
         """Summarize tool results for fallback display."""
         if not results:
@@ -494,3 +567,17 @@ class ActPhase:
             status = "✓" if r.success else "✗"
             lines.append(f"{status} {r.name}: {r.output}")
         return "\n".join(lines)
+
+    @classmethod
+    def _degraded_tool_note(cls, results: list[ToolResult]) -> str:
+        """Fixed operator-visible note when the model never finished answering."""
+        if not results:
+            return (
+                "I looked this up but could not finish a full answer, "
+                "and the tools returned no usable results."
+            )
+        summary = cls._summarize_tool_results(results)
+        return (
+            "I looked this up but could not finish a full answer. "
+            f"Here is what the tools returned:\n{summary}"
+        )

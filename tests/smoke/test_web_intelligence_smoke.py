@@ -14,7 +14,6 @@ import pytest
 
 from sovyx.plugins.official.web_intelligence import (
     WebIntelligencePlugin,
-    _extract_city,
     _extract_content,
     _fetch_html,
 )
@@ -137,79 +136,24 @@ class TestRealFetch:
             print("\n📄 Raw extraction: fetch failed (might be rate limited)")
 
 
-# ── Real Lookup ──
+# ── Real Fetch content-type ──
 
 
-class TestRealLookup:
-    """Lookup with real APIs."""
+class TestRealFetchContentTypes:
+    """API URLs must not be treated as readable pages."""
 
     @pytest.mark.anyio()
-    async def test_lookup_define(self) -> None:
+    async def test_open_meteo_json_not_a_page(self) -> None:
         p = WebIntelligencePlugin()
-        data = _parse(await p.lookup("what is blockchain"))
-        print(f"\n📖 Define: ok={data['ok']}, mode={data.get('mode')}")
-        assert data["ok"] is True
-        assert data["answer"], "Empty answer"
-        print(f"   Answer: {str(data['answer'])[:80]}")
-
-    @pytest.mark.anyio()
-    async def test_lookup_price(self) -> None:
-        p = WebIntelligencePlugin()
-        data = _parse(await p.lookup("Bitcoin price"))
-        print(f"\n💰 Price: ok={data['ok']}, mode={data.get('mode')}")
-        assert data["ok"] is True
-        assert data["mode"] == "price"
-        print(f"   Answer: {str(data['answer'])[:80]}")
-
-
-# ── Real Weather ──
-
-
-class TestRealWeather:
-    """Weather with real Open-Meteo API."""
-
-    @pytest.mark.anyio()
-    async def test_weather_sorocaba(self) -> None:
-        p = WebIntelligencePlugin()
-        data = _parse(await p.lookup("weather in Sorocaba", mode="weather"))
-        print(f"\n🌤️ Sorocaba: ok={data['ok']}")
-        if data["ok"]:
-            print(f"   {data.get('answer', 'N/A')}")
-            assert "temperature_c" in data or "answer" in data
-        else:
-            print(f"   Failed: {data.get('message')}")
-
-    @pytest.mark.anyio()
-    async def test_weather_new_york(self) -> None:
-        p = WebIntelligencePlugin()
-        data = _parse(await p.lookup("temperature New York", mode="weather"))
-        print(f"\n🌤️ New York: ok={data['ok']}")
-        if data["ok"]:
-            print(f"   {data.get('answer', 'N/A')}")
-
-    @pytest.mark.anyio()
-    async def test_weather_tokyo(self) -> None:
-        p = WebIntelligencePlugin()
-        data = _parse(await p.lookup("forecast Tokyo", mode="weather"))
-        print(f"\n🌤️ Tokyo: ok={data['ok']}")
-        if data["ok"]:
-            print(f"   {data.get('answer', 'N/A')}")
-
-    @pytest.mark.anyio()
-    async def test_city_extraction_edge_cases(self) -> None:
-        """Test _extract_city with tricky inputs."""
-        cases = [
-            ("weather in São Paulo", "São Paulo"),
-            ("vai chover em São José dos Campos", None),  # check it doesn't crash
-            ("temperatura Rio de Janeiro", None),
-            ("forecast London tomorrow", None),
-        ]
-        for query, expected in cases:
-            result = _extract_city(query)
-            print(f"\n   '{query}' → '{result}'")
-            assert result, f"Empty city for: {query}"
-            if expected:
-                assert expected.lower() in result.lower(), f"Expected '{expected}' in '{result}'"
+        data = _parse(
+            await p.fetch(
+                "https://api.open-meteo.com/v1/forecast"
+                "?latitude=35&longitude=139&current=temperature_2m"
+            )
+        )
+        print(f"\n📄 Open-Meteo fetch: ok={data['ok']} msg={data.get('message')}")
+        assert data["ok"] is False
+        assert "search snippets" in str(data.get("message", "")).lower()
 
 
 # ── Real Research ──

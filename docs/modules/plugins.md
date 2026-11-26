@@ -193,7 +193,7 @@ Local-directory installs prompt for the manifest's requested permissions (`--yes
 | `financial_math` | `calculate`, compound interest, NPV, IRR, amortization helpers | none (pure) |
 | `knowledge` | `remember`, `search`, `forget`, `recall_about`, `what_do_you_know` | `brain:read`, `brain:write` |
 | `weather` | `get_weather`, `get_forecast`, `will_it_rain` | `network:internet` |
-| `web_intelligence` | `search`, `fetch`, `research`, `learn_from_web`, `recall_web`, `lookup` | `network:internet` |
+| `web_intelligence` | `search`, `fetch`, `research`, `learn_from_web`, `recall_web` | `network:internet` |
 | `home_assistant` (v0.11.8) | `list_lights`, `turn_on_light`, `turn_off_light`, `turn_on_switch`, `turn_off_switch`, `read_sensor`, `list_sensors`, `set_temperature` | `network:local` |
 | `caldav` (v0.11.9) | `list_calendars`, `get_today`, `get_upcoming`, `get_event`, `find_free_slot`, `search_events` | `network:internet` |
 
