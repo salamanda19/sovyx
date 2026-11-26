@@ -4,6 +4,9 @@
  * Uses SSE (POST /api/chat/stream) for token-by-token rendering with
  * cognitive phase indicators. Falls back to batch POST /api/chat on
  * SSE failure.
+ *
+ * The request itself lives in ``lib/chat-session`` so navigating to
+ * another dashboard page does not abort an in-flight reply.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -20,8 +23,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useDashboardStore } from "@/stores/dashboard";
-import { api, apiFetch, ApiError, clearToken, isAbortError } from "@/lib/api";
-import { ChatResponseSchema } from "@/types/schemas";
+import { api } from "@/lib/api";
+import { abortActiveChat, sendChatMessage } from "@/lib/chat-session";
 import { cn } from "@/lib/utils";
 import { MarkdownContent, MessageTags, MessageMeta, CognitiveProgress, StreamingMessage } from "@/components/chat";
 import { ConversationSidebar } from "@/components/chat/conversation-sidebar";
@@ -29,11 +32,6 @@ import { EmptyState } from "@/components/empty-state";
 import { formatTimeShort } from "@/lib/format";
 import { LetterAvatar, MindAvatar } from "@/components/dashboard/letter-avatar";
 import { ErrorBoundary } from "@/components/error-boundary";
-import type { ChatResponse, ChatMessage } from "@/types/api";
-
-function localId(): string {
-  return `local-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-}
 
 export default function ChatPage() {
   const { t } = useTranslation(["chat", "common"]);
@@ -42,23 +40,21 @@ export default function ChatPage() {
   const loading = useDashboardStore((s) => s.chatLoading);
   const conversationId = useDashboardStore((s) => s.chatConversationId);
   const error = useDashboardStore((s) => s.chatError);
+  const streamingText = useDashboardStore((s) => s.chatStreamingText);
+  const cogPhase = useDashboardStore((s) => s.chatCogPhase);
+  const lastMessage = useDashboardStore((s) => s.chatLastOutbound);
   const addMessage = useDashboardStore((s) => s.addChatMessage);
-  const setLoading = useDashboardStore((s) => s.setChatLoading);
   const setConversationId = useDashboardStore((s) => s.setChatConversationId);
   const setError = useDashboardStore((s) => s.setChatError);
   const clearChat = useDashboardStore((s) => s.clearChat);
 
   const [input, setInput] = useState("");
-  const [lastMessage, setLastMessage] = useState("");
   const [showScrollBtn, setShowScrollBtn] = useState(false);
-  const [streamingText, setStreamingText] = useState("");
-  const [cogPhase, setCogPhase] = useState<{ phase: string; detail: string } | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [mood, setMood] = useState<{ label: string; quadrant: string } | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const abortRef = useRef<AbortController | null>(null);
   const userScrolledRef = useRef(false);
 
   // ── Smart auto-scroll ──
@@ -87,7 +83,8 @@ export default function ChatPage() {
   }, []);
 
   useEffect(() => { inputRef.current?.focus(); }, []);
-  useEffect(() => () => { abortRef.current?.abort(); }, []);
+  // Intentionally do NOT abort on unmount — switching dashboard tabs must
+  // leave the SSE request running so the reply can finish and persist.
 
   useEffect(() => {
     api
@@ -96,180 +93,13 @@ export default function ChatPage() {
       .catch(() => {});
   }, []);
 
-  // ── Send message (SSE streaming with batch fallback) ──
   const sendMessageText = useCallback(async (text: string) => {
-    if (!text || loading) return;
-
+    if (!text || useDashboardStore.getState().chatLoading) return;
     setInput("");
-    setError(null);
-    setLastMessage(text);
-    setStreamingText("");
-    setCogPhase(null);
-
-    addMessage({
-      id: localId(),
-      role: "user",
-      content: text,
-      timestamp: new Date().toISOString(),
-    });
-    setLoading(true);
     userScrolledRef.current = false;
-
-    abortRef.current?.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
-
-    try {
-      // Try SSE streaming first. Routed through apiFetch so the auth header
-      // is injected by a single code path (anti-pattern #18) — we can't use
-      // api.post() because SSE needs the raw Response body reader, not the
-      // parsed JSON. 401 is handled explicitly below to mirror request()'s
-      // clear-token-and-show-modal behavior.
-      const resp = await apiFetch("/api/chat/stream", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: text,
-          user_name: "Dashboard",
-          conversation_id: conversationId,
-        }),
-        signal: controller.signal,
-      });
-
-      if (resp.status === 401) {
-        clearToken();
-        useDashboardStore.getState().setAuthenticated(false);
-        useDashboardStore.getState().setShowTokenModal(true);
-        throw new ApiError(401, "Unauthorized");
-      }
-
-      if (!resp.ok || !resp.body) {
-        throw new Error("SSE not available");
-      }
-
-      const reader = resp.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let accumulated = "";
-      let doneData: Record<string, unknown> | null = null;
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-
-        let currentEventType = "";
-        for (const line of lines) {
-          if (line.startsWith("event: ")) {
-            currentEventType = line.slice(7).trim();
-          } else if (line.startsWith("data: ") && currentEventType) {
-            const data = line.slice(6);
-            try {
-              const parsed = JSON.parse(data) as Record<string, unknown>;
-              if (currentEventType === "token") {
-                const chunk = String(parsed.text ?? "");
-                accumulated += chunk;
-                setStreamingText(accumulated);
-              } else if (currentEventType === "phase") {
-                setCogPhase({
-                  phase: String(parsed.phase ?? ""),
-                  detail: String(parsed.detail ?? ""),
-                });
-              } else if (currentEventType === "done") {
-                doneData = parsed;
-              } else if (currentEventType === "error") {
-                throw new Error(String(parsed.error ?? "Stream error"));
-              }
-            } catch (e) {
-              if (e instanceof Error && e.message !== "Stream error") {
-                // JSON parse error — skip malformed event
-              } else {
-                throw e;
-              }
-            }
-            currentEventType = "";
-          } else if (line === "") {
-            currentEventType = "";
-          }
-        }
-      }
-
-      // Finalize
-      setCogPhase(null);
-      setStreamingText("");
-
-      const finalResponse = String(doneData?.response ?? accumulated);
-      const finalConvId = String(doneData?.conversation_id ?? conversationId ?? "");
-      const finalTags = (doneData?.tags as string[] | undefined) ?? ["brain"];
-      if (finalConvId && finalConvId !== conversationId) {
-        setConversationId(finalConvId);
-      }
-
-      const aiMsg: ChatMessage = {
-        id: localId(),
-        role: "assistant",
-        content: finalResponse,
-        timestamp: (doneData?.timestamp as string) ?? new Date().toISOString(),
-        tags: finalTags,
-        mind_id: doneData?.mind_id as string | undefined,
-        model: doneData?.model as string | undefined,
-        tokens_in: doneData?.tokens_in as number | undefined,
-        tokens_out: doneData?.tokens_out as number | undefined,
-        cost_usd: doneData?.cost_usd as number | undefined,
-        latency_ms: doneData?.latency_ms as number | undefined,
-        provider: doneData?.provider as string | undefined,
-      };
-      addMessage(aiMsg);
-
-    } catch (err) {
-      if (isAbortError(err)) return;
-      // 401 already cleared the token and opened the modal — don't
-      // retry via the batch endpoint (would trigger a second modal).
-      if (err instanceof ApiError && err.status === 401) {
-        setLoading(false);
-        setStreamingText("");
-        setCogPhase(null);
-        return;
-      }
-
-      // Fallback to batch endpoint
-      try {
-        const resp = await api.post<ChatResponse>(
-          "/api/chat",
-          { message: text, user_name: "Dashboard", conversation_id: conversationId },
-          { signal: controller.signal, schema: ChatResponseSchema },
-        );
-        if (resp.conversation_id && resp.conversation_id !== conversationId) {
-          setConversationId(resp.conversation_id);
-        }
-        addMessage({
-          id: localId(),
-          role: "assistant",
-          content: resp.response,
-          timestamp: resp.timestamp ?? new Date().toISOString(),
-          mind_id: resp.mind_id,
-          tags: resp.tags,
-          model: resp.model,
-          tokens_in: resp.tokens_in,
-          tokens_out: resp.tokens_out,
-          cost_usd: resp.cost_usd,
-          latency_ms: resp.latency_ms,
-          provider: resp.provider,
-        });
-      } catch (fallbackErr) {
-        if (isAbortError(fallbackErr)) return;
-        setError(t("error.loadFailed"));
-      }
-    } finally {
-      setLoading(false);
-      setStreamingText("");
-      setCogPhase(null);
-      inputRef.current?.focus();
-    }
-  }, [loading, conversationId, addMessage, setLoading, setConversationId, setError, t]);
+    await sendChatMessage(text, { loadFailedMessage: t("error.loadFailed") });
+    inputRef.current?.focus();
+  }, [t]);
 
   const sendMessage = useCallback(() => {
     void sendMessageText(input.trim());
@@ -280,7 +110,7 @@ export default function ChatPage() {
       setError(null);
       void sendMessageText(lastMessage);
     }
-  }, [lastMessage, sendMessageText]);
+  }, [lastMessage, sendMessageText, setError]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -303,17 +133,15 @@ export default function ChatPage() {
   );
 
   const handleNewChat = useCallback(() => {
-    abortRef.current?.abort();
+    abortActiveChat();
     clearChat();
     setInput("");
-    setLastMessage("");
-    setStreamingText("");
-    setCogPhase(null);
     inputRef.current?.focus();
   }, [clearChat]);
 
   const handleSelectConversation = useCallback(
     async (id: string) => {
+      abortActiveChat();
       try {
         const res = await api.get<{ messages: Array<{ id: string; role: string; content: string; timestamp: string; tags?: string[] }> }>(
           `/api/conversations/${id}`,
