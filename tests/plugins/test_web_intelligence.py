@@ -860,6 +860,10 @@ class TestClassifyContentType:
             == "html"
         )
 
+    def test_empty_header_sniffs_head_or_div_as_html(self) -> None:
+        assert _web_mod._classify_content_type("", "<head><title>X</title></head>") == "html"
+        assert _web_mod._classify_content_type("", "<div class='main'>Hi</div>") == "html"
+
     def test_octet_stream_sniffs_json_as_api(self) -> None:
         assert (
             _web_mod._classify_content_type("application/octet-stream", '{"temp":15}') == "api"

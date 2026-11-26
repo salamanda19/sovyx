@@ -914,6 +914,12 @@ class TestReActUnfinishedReply:
             "Direct API call failed — let me try again and also pull a forecast page:"
         )
         assert ActPhase._is_unfinished_tool_reply("Fukuoka will be mild next week.") is False
+        # User-facing advice is not a first-person retry plan.
+        assert (
+            ActPhase._is_unfinished_tool_reply("Please try again with a city name.") is False
+        )
+        # Trailing colon alone must not flag unfinished.
+        assert ActPhase._is_unfinished_tool_reply("Don't try the old URL:") is False
         # Retry marker with a long answer tail must be kept.
         assert (
             ActPhase._is_unfinished_tool_reply(

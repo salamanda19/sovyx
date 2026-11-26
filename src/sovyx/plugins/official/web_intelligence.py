@@ -1827,11 +1827,14 @@ def _classify_content_type(content_type: str, body: str = "") -> str:
 
 def _sniff_body_kind(body: str) -> str:
     """Guess fetch kind from body when Content-Type is missing or opaque."""
-    sample = body.lstrip()[:256].lower()
-    if sample.startswith("<!doctype") or sample.startswith("<html") or sample.startswith("<?xml"):
-        return "html"
-    if sample.startswith("{") or sample.startswith("["):
+    sample = body.lstrip()[:256]
+    lower = sample.lower()
+    if lower.startswith("{") or lower.startswith("["):
         return "api"
+    # Any markup starting with '<' — including <head>, <div>, <?xml — is HTML.
+    # Without a Content-Type, treating tag soup as plain text shows raw markup.
+    if lower.startswith("<"):
+        return "html"
     return "text"
 
 

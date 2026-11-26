@@ -35,9 +35,9 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-# Mid-retry chatter that must not become the final user-visible reply.
+# First-person mid-retry plans only — not user-facing "please try again".
 _RETRY_REPLY_RE = re.compile(
-    r"(let me try|i'?ll try|i will try|try again|trying again|let me check again)",
+    r"(let me try|i'?ll try|i will try|let me check again)",
     re.IGNORECASE,
 )
 # Only short replies can be unfinished retry plans. Longer text already answered.
@@ -546,12 +546,11 @@ class ActPhase:
 
     @staticmethod
     def _is_unfinished_tool_reply(text: str) -> bool:
-        """True when the whole reply is empty or only a short retry plan.
+        """True when the whole reply is empty or only a short first-person retry plan.
 
-        A longer reply that happens to contain "let me try" is kept — the
-        model already started answering. Only short texts whose retry
-        marker leaves a short tail (or that end mid-sentence with ':')
-        count as unfinished.
+        Matches "let me try…" / "I'll try…" with a short tail. Does not match
+        user-facing advice like "Please try again with a city name." A longer
+        reply that happens to contain "let me try" is kept.
         """
         if not isinstance(text, str):
             return True
@@ -563,19 +562,12 @@ class ActPhase:
             return False
 
         match = _RETRY_REPLY_RE.search(stripped)
-        if match is not None:
-            tail = stripped[match.end() :].strip()
-            # "let me try single-city API calls." → short tail → unfinished.
-            # "let me try to summarize: Fukuoka is 15°C ..." → long tail → keep.
-            if len(tail) <= _MAX_RETRY_TAIL_CHARS:
-                return True
-
-        # Short failure announcement ending mid-sentence (often trailing ':').
-        if stripped.endswith(":") and any(
-            word in stripped.lower() for word in ("fail", "try", "pull")
-        ):
-            return True
-        return False
+        if match is None:
+            return False
+        tail = stripped[match.end() :].strip()
+        # "let me try single-city API calls." → short tail → unfinished.
+        # "let me try to summarize: Fukuoka is 15°C ..." → long tail → keep.
+        return len(tail) <= _MAX_RETRY_TAIL_CHARS
 
     @staticmethod
     def _summarize_tool_results(results: list[ToolResult]) -> str:
