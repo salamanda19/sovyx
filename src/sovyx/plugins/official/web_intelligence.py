@@ -1802,11 +1802,15 @@ def _validate_url(url: str) -> str:
 # ── URL Fetching ──
 
 
-def _classify_content_type(content_type: str) -> str:
-    """Map a Content-Type header to fetch handling kind.
+def _classify_content_type(content_type: str, body: str = "") -> str:
+    """Map Content-Type (and body sniff when needed) to fetch handling kind.
 
     Returns:
         ``html``, ``text``, or ``api`` (JSON / structured payloads).
+
+    Explicit ``application/json`` (and similar) stay ``api``. Empty or
+    opaque types (``application/octet-stream``) sniff the body: HTML
+    markers → ``html``, JSON-looking → ``api``, otherwise ``text``.
     """
     ct = content_type.lower()
     # Strip parameters (e.g. charset)
@@ -1815,8 +1819,20 @@ def _classify_content_type(content_type: str) -> str:
         return "html"
     if ct.startswith("text/"):
         return "text"
-    # JSON and other structured API payloads — not readable pages.
+    if ct in {"", "application/octet-stream"} or ct.startswith("application/octet-stream"):
+        return _sniff_body_kind(body)
+    # Explicit JSON and other structured API payloads — not readable pages.
     return "api"
+
+
+def _sniff_body_kind(body: str) -> str:
+    """Guess fetch kind from body when Content-Type is missing or opaque."""
+    sample = body.lstrip()[:256].lower()
+    if sample.startswith("<!doctype") or sample.startswith("<html") or sample.startswith("<?xml"):
+        return "html"
+    if sample.startswith("{") or sample.startswith("["):
+        return "api"
+    return "text"
 
 
 async def _fetch_url(url: str) -> tuple[str, str, str] | None:
@@ -1853,8 +1869,9 @@ async def _fetch_url(url: str) -> tuple[str, str, str] | None:
         if len(resp.content) > 1_048_576:
             return None
         content_type = resp.headers.get("content-type", "") or ""
-        kind = _classify_content_type(content_type)
-        return (kind, resp.text, content_type)
+        body = resp.text
+        kind = _classify_content_type(content_type, body)
+        return (kind, body, content_type)
     except Exception:  # noqa: BLE001
         return None
     finally:

@@ -40,6 +40,10 @@ _RETRY_REPLY_RE = re.compile(
     r"(let me try|i'?ll try|i will try|try again|trying again|let me check again)",
     re.IGNORECASE,
 )
+# Only short replies can be unfinished retry plans. Longer text already answered.
+_MAX_UNFINISHED_CHARS = 200
+# After a retry marker, this much trailing text still counts as "only a plan".
+_MAX_RETRY_TAIL_CHARS = 80
 
 
 @dataclasses.dataclass
@@ -542,19 +546,35 @@ class ActPhase:
 
     @staticmethod
     def _is_unfinished_tool_reply(text: str) -> bool:
-        """True when tool-loop text is empty or mid-retry chatter."""
+        """True when the whole reply is empty or only a short retry plan.
+
+        A longer reply that happens to contain "let me try" is kept — the
+        model already started answering. Only short texts whose retry
+        marker leaves a short tail (or that end mid-sentence with ':')
+        count as unfinished.
+        """
         if not isinstance(text, str):
             return True
         stripped = text.strip()
         if not stripped:
             return True
-        if _RETRY_REPLY_RE.search(stripped):
-            return True
-        # Short failure announcement ending mid-sentence (often trailing ':').
-        if stripped.endswith(":") and len(stripped) < 200:
-            lower = stripped.lower()
-            if "fail" in lower or "try" in lower or "pull" in lower:
+        # A longer reply already started answering.
+        if len(stripped) > _MAX_UNFINISHED_CHARS:
+            return False
+
+        match = _RETRY_REPLY_RE.search(stripped)
+        if match is not None:
+            tail = stripped[match.end() :].strip()
+            # "let me try single-city API calls." → short tail → unfinished.
+            # "let me try to summarize: Fukuoka is 15°C ..." → long tail → keep.
+            if len(tail) <= _MAX_RETRY_TAIL_CHARS:
                 return True
+
+        # Short failure announcement ending mid-sentence (often trailing ':').
+        if stripped.endswith(":") and any(
+            word in stripped.lower() for word in ("fail", "try", "pull")
+        ):
+            return True
         return False
 
     @staticmethod

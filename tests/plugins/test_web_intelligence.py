@@ -842,6 +842,33 @@ class TestFetchTool:
         assert "search snippets" in str(data["message"]).lower()
 
 
+class TestClassifyContentType:
+    """Content-Type + body sniff for fetch kind."""
+
+    def test_explicit_html(self) -> None:
+        assert _web_mod._classify_content_type("text/html; charset=utf-8") == "html"
+
+    def test_explicit_text(self) -> None:
+        assert _web_mod._classify_content_type("text/plain") == "text"
+
+    def test_explicit_json_is_api(self) -> None:
+        assert _web_mod._classify_content_type("application/json", '{"a":1}') == "api"
+
+    def test_empty_header_sniffs_html(self) -> None:
+        assert (
+            _web_mod._classify_content_type("", "<!DOCTYPE html><html><body>Hi</body></html>")
+            == "html"
+        )
+
+    def test_octet_stream_sniffs_json_as_api(self) -> None:
+        assert (
+            _web_mod._classify_content_type("application/octet-stream", '{"temp":15}') == "api"
+        )
+
+    def test_empty_header_sniffs_plain_text(self) -> None:
+        assert _web_mod._classify_content_type("", "Kagoshima: ⛅ +15°C") == "text"
+
+
 # ── Query Intent Classification (TASK-499) ──
 
 from sovyx.plugins.official.web_intelligence import QueryIntent, classify_query

@@ -803,7 +803,8 @@ class TestReActLoop:
         assert "Sorry" in result.response_text
 
 
-class TestSummarizeToolResults:
+class TestReActUnfinishedReply:
+    """Tools-off completion and unfinished-reply detection."""
 
     async def test_unfinished_retry_reply_triggers_completion(self) -> None:
         """Retry chatter after tools gets a tools-off rewrite."""
@@ -913,12 +914,29 @@ class TestSummarizeToolResults:
             "Direct API call failed — let me try again and also pull a forecast page:"
         )
         assert ActPhase._is_unfinished_tool_reply("Fukuoka will be mild next week.") is False
+        # Retry marker with a long answer tail must be kept.
+        assert (
+            ActPhase._is_unfinished_tool_reply(
+                "Let me try to summarize: Fukuoka is about 15°C and cloudy, "
+                "Kagoshima similar, and Nagasaki stays wet for most of next week."
+            )
+            is False
+        )
+        # Long reply that happens to contain "let me try" must be kept.
+        long_answer = (
+            "Here is the forecast for major Kyushu cities next week. "
+            "Fukuoka looks mild around 15°C with clouds. "
+            "Kumamoto is similar. Kagoshima stays a bit warmer. "
+            "Let me try to keep this brief for travel planning: pack a light jacket."
+        )
+        assert len(long_answer) > 200
+        assert ActPhase._is_unfinished_tool_reply(long_answer) is False
 
 
+class TestSummarizeToolResults:
     """Tests for _summarize_tool_results."""
 
     def test_empty(self) -> None:
-
         result = ActPhase._summarize_tool_results([])
         assert "no results" in result.lower()
 
