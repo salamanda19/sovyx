@@ -1,11 +1,11 @@
 /**
  * Chat session runner that outlives the Chat page.
  *
- * Navigating to another dashboard route unmounts ChatPage. The old page
- * aborted its in-flight SSE on unmount, which cancelled the server saga
- * and skipped conversation persistence. This module owns the AbortController
- * and writes all progress into the Zustand store so the request keeps
- * running across route changes.
+ * Navigating to another dashboard route unmounts ChatPage. This module
+ * owns the AbortController (only New Chat / superseding send abort) and
+ * writes progress into the Zustand store so the request keeps running
+ * across route changes. The server persists turns in the spawned task
+ * and emits an early ``conversation`` event so a remount can reload by id.
  */
 import { api, apiFetch, ApiError, clearToken, isAbortError } from "@/lib/api";
 import { ChatResponseSchema } from "@/types/schemas";
@@ -117,6 +117,11 @@ export async function sendChatMessage(
                 phase: String(parsed.phase ?? ""),
                 detail: String(parsed.detail ?? ""),
               });
+            } else if (currentEventType === "conversation") {
+              const id = String(parsed.conversation_id ?? "");
+              if (id) {
+                patch().setChatConversationId(id);
+              }
             } else if (currentEventType === "done") {
               doneData = parsed;
             } else if (currentEventType === "error") {

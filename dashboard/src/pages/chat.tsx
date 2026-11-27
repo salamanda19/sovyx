@@ -43,7 +43,7 @@ export default function ChatPage() {
   const streamingText = useDashboardStore((s) => s.chatStreamingText);
   const cogPhase = useDashboardStore((s) => s.chatCogPhase);
   const lastMessage = useDashboardStore((s) => s.chatLastOutbound);
-  const addMessage = useDashboardStore((s) => s.addChatMessage);
+  const setMessages = useDashboardStore((s) => s.setChatMessages);
   const setConversationId = useDashboardStore((s) => s.setChatConversationId);
   const setError = useDashboardStore((s) => s.setChatError);
   const clearChat = useDashboardStore((s) => s.clearChat);
@@ -92,6 +92,46 @@ export default function ChatPage() {
       .then((r) => { if (r.episode_count > 0) setMood({ label: r.label, quadrant: r.quadrant }); })
       .catch(() => {});
   }, []);
+
+  // After a mid-stream disconnect the store may miss the assistant turn.
+  // When Chat remounts (or loading settles) with a known id, reload from DB.
+  useEffect(() => {
+    if (loading || !conversationId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await api.get<{
+          conversation_id: string;
+          messages: Array<{
+            id: string;
+            role: string;
+            content: string;
+            timestamp: string;
+            tags?: string[];
+          }>;
+        }>(`/api/conversations/${conversationId}`);
+        if (cancelled) return;
+        const s = useDashboardStore.getState();
+        if (s.chatLoading || s.chatConversationId !== conversationId) return;
+        const serverMsgs = (res.messages ?? []).map((msg) => ({
+          id: msg.id,
+          role: msg.role as "user" | "assistant",
+          content: msg.content,
+          timestamp: msg.timestamp,
+          tags: msg.tags,
+        }));
+        // Prefer server when it has the later assistant turn we missed.
+        if (serverMsgs.length >= s.chatMessages.length) {
+          setMessages(serverMsgs);
+        }
+      } catch {
+        // Keep in-memory turns if reload fails.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [loading, conversationId, setMessages]);
 
   const sendMessageText = useCallback(async (text: string) => {
     if (!text || useDashboardStore.getState().chatLoading) return;
@@ -148,21 +188,21 @@ export default function ChatPage() {
         );
         clearChat();
         setConversationId(id);
-        for (const msg of res.messages ?? []) {
-          addMessage({
+        setMessages(
+          (res.messages ?? []).map((msg) => ({
             id: msg.id,
             role: msg.role as "user" | "assistant",
             content: msg.content,
             timestamp: msg.timestamp,
             tags: msg.tags,
-          });
-        }
+          })),
+        );
       } catch {
         // Graceful
       }
       setSidebarOpen(false);
     },
-    [clearChat, setConversationId, addMessage],
+    [clearChat, setConversationId, setMessages],
   );
 
   return (

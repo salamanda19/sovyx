@@ -24,6 +24,7 @@ export interface ChatSlice {
   chatCogPhase: ChatCogPhase | null;
   chatLastOutbound: string;
   addChatMessage: (msg: ChatMessage) => void;
+  setChatMessages: (msgs: ChatMessage[]) => void;
   setChatLoading: (loading: boolean) => void;
   setChatConversationId: (id: string | null) => void;
   setChatError: (error: string | null) => void;
@@ -48,6 +49,7 @@ export const createChatSlice: StateCreator<
   chatLastOutbound: "",
   addChatMessage: (msg) =>
     set((state) => ({ chatMessages: [...state.chatMessages, msg] })),
+  setChatMessages: (msgs) => set({ chatMessages: msgs }),
   setChatLoading: (loading) => set({ chatLoading: loading }),
   setChatConversationId: (id) => set({ chatConversationId: id }),
   setChatError: (error) => set({ chatError: error }),

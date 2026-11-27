@@ -124,9 +124,13 @@ The safety stack is independent of the loop — each guard is invoked in the rel
 `POST /api/chat/stream` bypasses the batch `ActionResult` contract and runs
 the same phases with an incremental token sink wired into `ThinkPhase`. The
 phase emits a `ThinkStreamStarted` event at first token and streams
-`token`/`phase`/`done`/`error` SSE events back to the dashboard. `ActPhase`
-and `ReflectPhase` still run in full after the stream completes so episodes
-and concepts are updated consistently with the non-streaming path.
+`conversation`/`phase`/`token`/`done`/`error` SSE events back to the
+dashboard (`conversation` carries the id as soon as the row exists). User and
+assistant turns are persisted inside the spawned cognitive task — not in the
+SSE generator — so a client disconnect that cancels the generator cannot skip
+`add_turn` after the loop finishes. `ActPhase` and `ReflectPhase` still run in
+full after the stream completes so episodes and concepts are updated
+consistently with the non-streaming path.
 
 ## Configuration
 

@@ -28,9 +28,29 @@ vi.mock("@/lib/api", () => {
   };
 });
 
-import { api } from "@/lib/api";
+import { api, apiFetch } from "@/lib/api";
 
 const mockApi = api as unknown as { post: ReturnType<typeof vi.fn> };
+const mockApiFetch = apiFetch as unknown as ReturnType<typeof vi.fn>;
+
+function sseResponse(chunks: string[]): Response {
+  const encoder = new TextEncoder();
+  let i = 0;
+  const stream = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (i >= chunks.length) {
+        controller.close();
+        return;
+      }
+      controller.enqueue(encoder.encode(chunks[i]));
+      i += 1;
+    },
+  });
+  return new Response(stream, {
+    status: 200,
+    headers: { "Content-Type": "text/event-stream" },
+  });
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -84,5 +104,23 @@ describe("sendChatMessage", () => {
 
     // AbortError path returns early; loading cleared in finally.
     expect(useDashboardStore.getState().chatLoading).toBe(false);
+  });
+
+  it("sets conversation_id from early SSE conversation event", async () => {
+    mockApiFetch.mockResolvedValueOnce(
+      sseResponse([
+        'event: conversation\ndata: {"conversation_id":"conv-early"}\n\n',
+        'event: token\ndata: {"text":"Hi"}\n\n',
+        'event: done\ndata: {"response":"Hi","conversation_id":"conv-early","tags":["brain"]}\n\n',
+      ]),
+    );
+
+    await sendChatMessage("hello");
+
+    const state = useDashboardStore.getState();
+    expect(state.chatConversationId).toBe("conv-early");
+    expect(state.chatMessages).toHaveLength(2);
+    expect(state.chatMessages[1]?.content).toBe("Hi");
+    expect(state.chatLoading).toBe(false);
   });
 });
