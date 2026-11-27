@@ -957,7 +957,22 @@ class TestReActUnfinishedReply:
         assert result.response_text == answer
         assert result.degraded is False
         assert seen and draft in seen[0]
+        assert "not retrieved" in seen[0]
+        assert "does not exist" in seen[0]
         assert mock_router.generate.call_args_list[-1].kwargs.get("tools") is None
+
+    def test_final_answer_instruction_requires_scope_coverage(self) -> None:
+        """Finish prompt forbids inventing missing scope as nonexistent."""
+        from sovyx.cognitive.act import _FINAL_ANSWER_INSTRUCTION
+
+        assert "not retrieved" in _FINAL_ANSWER_INSTRUCTION
+        assert "does not exist" in _FINAL_ANSWER_INSTRUCTION
+        assert "climate averages" in _FINAL_ANSWER_INSTRUCTION
+        assert "asked scope" in _FINAL_ANSWER_INSTRUCTION
+        # Must not keep any fluent draft unchanged without coverage check.
+        assert "already answers the user, return that answer unchanged" not in (
+            _FINAL_ANSWER_INSTRUCTION
+        )
 
 
 class TestSummarizeToolResults:

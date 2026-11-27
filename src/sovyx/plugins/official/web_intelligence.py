@@ -8,6 +8,11 @@ Model-visible tools: ``search`` (ordinary facts, including weather/prices),
 only), ``learn_from_web``, ``recall_web``. Keyword ``lookup`` shortcuts were
 removed — they diverted successful searches into broken geocode/API paths.
 
+Truncated ``fetch`` bodies lead with an explicit start-of-page notice so
+the model cannot treat a clipped page as complete. Soft ``{"ok": false}``
+payloads are marked failed by ``PluginManager`` (✗ for the model) without
+auto-disabling the plugin.
+
 Default backend: DuckDuckGo (zero API key).
 Optional: SearXNG (self-hosted), Brave (API key).
 
@@ -36,6 +41,10 @@ _MAX_QUERY_LEN = 500
 _MAX_RESULTS_DEFAULT = 5
 _MAX_RESULTS_CAP = 20
 _MAX_FETCH_CHARS = 4000
+_TRUNCATION_NOTICE = (
+    "[TRUNCATED: this is only the start of the page, not the full "
+    "document. Later sections are missing.]\n\n"
+)
 _SEARCH_TIMEOUT = 10.0
 _FETCH_TIMEOUT = 15.0
 _RATE_LIMIT_SEARCHES = 30
@@ -490,6 +499,19 @@ def _ok(action: str, **kwargs: object) -> str:
 def _err(message: str) -> str:
     """Build error JSON response."""
     return json.dumps({"ok": False, "action": "error", "message": message})
+
+
+def _apply_fetch_truncation(text: str, max_chars: int) -> tuple[str, bool]:
+    """Clip *text* to *max_chars* and prepend a start-of-page notice.
+
+    Returns ``(possibly_clipped_text, truncated)``. The notice is placed
+    first so a model that only reads the beginning still sees that later
+    content is missing.
+    """
+    if len(text) <= max_chars:
+        return text, False
+    clipped = text[:max_chars] + "..."
+    return _TRUNCATION_NOTICE + clipped, True
 
 
 class _RateLimiter:
@@ -1367,11 +1389,9 @@ class WebIntelligencePlugin(ISovyxPlugin):
                 return _err(_MSG_FETCH_NOT_PAGE)
 
             if kind == "text":
-                text = body
-                truncated = len(text) > max_chars
-                if truncated:
-                    text = text[:max_chars] + "..."
+                text, truncated = _apply_fetch_truncation(body, max_chars)
                 cred = score_credibility(url)
+                trunc_note = " (truncated — start of page only)" if truncated else ""
                 return _ok(
                     "fetch",
                     url=url,
@@ -1385,18 +1405,19 @@ class WebIntelligencePlugin(ISovyxPlugin):
                     truncated=truncated,
                     credibility=cred.to_dict(),
                     result=text[:200],
-                    message=f"Fetched {len(text)} chars of plain text from {url}",
+                    message=(f"Fetched {len(text)} chars of plain text from {url}{trunc_note}"),
                 )
 
             # HTML page
             extracted = _extract_content(body, url)
-            text = extracted["text"]
-            truncated = len(text) > max_chars
-            if truncated:
-                text = text[:max_chars] + "..."
-                extracted["text"] = text
+            text, truncated = _apply_fetch_truncation(
+                str(extracted["text"]),
+                max_chars,
+            )
+            extracted["text"] = text
 
             cred = score_credibility(url)
+            trunc_note = " (truncated — start of page only)" if truncated else ""
             return _ok(
                 "fetch",
                 url=url,
@@ -1413,6 +1434,7 @@ class WebIntelligencePlugin(ISovyxPlugin):
                 message=(
                     f"Fetched {len(text)} chars from {extracted['site'] or url}"
                     + (f" by {extracted['author']}" if extracted["author"] else "")
+                    + trunc_note
                 ),
             )
         except TimeoutError:
@@ -1741,6 +1763,7 @@ class WebIntelligencePlugin(ISovyxPlugin):
             )
         except Exception as e:  # noqa: BLE001
             return _err(f"brain recall failed: {e}")
+
 
 # ── URL Validation ──
 

@@ -15,7 +15,7 @@ The `sovyx.cognitive` package turns an incoming message (a perception) into an e
 | `PerceivePhase` | Validates and normalizes input, classifies complexity. |
 | `AttendPhase` | Filters by priority and normalization; decides `should_process`. |
 | `ThinkPhase` | Selects a model by complexity, assembles context, calls `LLMRouter`. |
-| `ActPhase` | Formats the response, executes tool calls via `ToolExecutor`. |
+| `ActPhase` | Formats the response, executes tool calls via `ToolExecutor`. After tools run, one tools-off turn rewrites the draft under coverage rules: answer only what tools retrieved for the asked scope; missed scope is "not retrieved", never "does not exist". |
 | `ReflectPhase` | Encodes the episode, extracts concepts, updates the brain. Split into `reflect/phase.py` orchestration + `_categories.py`, `_scoring.py`, `_prompts.py`, `_fallback.py`, `_models.py` sub-modules. |
 | `voice/cognitive_bridge.py` | Bridges voice-pipeline transcripts into the cognitive loop (lives in the `sovyx.voice` package). Owns the `Perception` → `CogLoopGate.submit()` hand-off for the microphone path. |
 

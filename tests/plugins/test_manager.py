@@ -139,6 +139,34 @@ class ErrorToolPlugin(ISovyxPlugin):
         raise ValueError(msg)
 
 
+class SoftFailPlugin(ISovyxPlugin):
+    """Returns structured ok:false without raising."""
+
+    @property
+    def name(self) -> str:
+        return "soft-fail"
+
+    @property
+    def version(self) -> str:
+        return "1.0.0"
+
+    @property
+    def description(self) -> str:
+        return "Soft JSON failures."
+
+    @tool(description="Return ok false")
+    async def report_miss(self) -> str:
+        return '{"ok": false, "action": "error", "message": "failed to fetch URL"}'
+
+    @tool(description="Return ok true")
+    async def report_hit(self) -> str:
+        return '{"ok": true, "action": "search", "count": 1}'
+
+    @tool(description="Return plain text")
+    async def plain(self) -> str:
+        return "Sunny in Berlin"
+
+
 # ── Topological Sort ────────────────────────────────────────────────
 
 
@@ -331,6 +359,49 @@ class TestToolExecution:
         result = await mgr.execute("error-tool.broken", {})
         assert result.success is False
         assert "tool broke" in result.output
+
+    @pytest.mark.anyio()
+    async def test_execute_ok_false_is_failed_result(self, tmp_path: Path) -> None:
+        """Structured ok:false is ✗ for the model without auto-disabling."""
+        mgr = PluginManager(data_dir=tmp_path, discover_entry_points=False)
+        await mgr.load_single(SoftFailPlugin())
+        miss = await mgr.execute("soft-fail.report_miss", {})
+        assert miss.success is False
+        assert "failed to fetch URL" in miss.output
+        hit = await mgr.execute("soft-fail.report_hit", {})
+        assert hit.success is True
+        plain = await mgr.execute("soft-fail.plain", {})
+        assert plain.success is True
+        # Soft failures must not count toward consecutive auto-disable.
+        for _ in range(10):
+            again = await mgr.execute("soft-fail.report_miss", {})
+            assert again.success is False
+        still = await mgr.execute("soft-fail.report_hit", {})
+        assert still.success is True
+
+
+class TestToolOutputSucceeded:
+    """Unit tests for soft ok:false detection."""
+
+    def test_ok_false(self) -> None:
+        from sovyx.plugins.manager import _tool_output_succeeded
+
+        assert _tool_output_succeeded('{"ok": false, "message": "x"}') is False
+
+    def test_ok_true(self) -> None:
+        from sovyx.plugins.manager import _tool_output_succeeded
+
+        assert _tool_output_succeeded('{"ok": true, "count": 1}') is True
+
+    def test_plain_string(self) -> None:
+        from sovyx.plugins.manager import _tool_output_succeeded
+
+        assert _tool_output_succeeded("Sunny in Berlin") is True
+
+    def test_json_without_ok_key(self) -> None:
+        from sovyx.plugins.manager import _tool_output_succeeded
+
+        assert _tool_output_succeeded('{"result": "done"}') is True
 
 
 # ── Tool Definitions ────────────────────────────────────────────────

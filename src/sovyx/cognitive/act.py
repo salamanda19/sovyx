@@ -5,11 +5,14 @@ injects results back, and re-invokes the LLM (max iterations configurable).
 Financial gate integration preserved — financial tool calls require user
 confirmation before execution.
 
-After tools run, ActPhase always takes one tools-disabled turn so the
-model can keep a finished answer or replace a "I'll try again" plan.
-That judgment is the model's, in whatever language the draft uses —
-there is no keyword list. An empty result or another tool request falls
-back to a fixed degraded note.
+After tools run, ActPhase always takes one tools-disabled turn. The model
+rewrites or keeps the draft under coverage rules: answer only what the
+tools retrieved for the user's asked scope; missed scope is "not
+retrieved this time", never "does not exist", and never filled with
+general knowledge presented as the looked-up answer. Retry-only drafts
+are replaced. That judgment is the model's, in whatever language the
+draft uses — there is no keyword list. An empty result or another tool
+request falls back to a fixed degraded note.
 
 Spec: SPE-003 §4 (ReAct pattern), SPE-008 §6 (PluginManager dispatch)
 """
@@ -35,15 +38,26 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-# Language-agnostic instruction. The model decides whether the draft is a
-# finished answer or only a plan to try again; we do not match phrases.
+# Language-agnostic instruction. The model applies coverage rules and
+# decides whether the draft is already compliant or only a retry plan;
+# we do not match phrases.
 _FINAL_ANSWER_INSTRUCTION = (
     "Write the final reply to the user from the tool results above. "
-    "The draft may be in any language. "
-    "If the draft already answers the user, return that answer unchanged. "
-    "If the draft only says you will try again, look something up, or call "
-    "another tool — in any language — do not repeat that plan. "
-    "Answer from the tool results instead. Do not announce another attempt.\n\n"
+    "The draft may be in any language.\n\n"
+    "Coverage rules (any language):\n"
+    "- Cover only what the tool results actually retrieved for the "
+    "user's asked scope (places, dates, facts, amounts).\n"
+    "- If tools missed part of that scope, say it was not retrieved "
+    "this time. Do not say that information does not exist, and do not "
+    "fill the gap with general knowledge, climate averages, or memory "
+    "presented as the looked-up answer.\n"
+    "- Keep parts that were retrieved tied to those tool results.\n"
+    "- If the draft already obeys these rules, you may return it "
+    "unchanged; otherwise rewrite it.\n\n"
+    "If the draft only says you will try again, look something up, or "
+    "call another tool — in any language — do not repeat that plan. "
+    "Answer from the tool results instead. Do not announce another "
+    "attempt.\n\n"
     "Draft:\n{draft}"
 )
 
@@ -483,8 +497,8 @@ class ActPhase:
         degraded = False
 
         # Tools ran. One tools-off turn writes the user-visible reply.
-        # The model, not a phrase list, decides whether the draft is already
-        # an answer or only a plan to try again (any language).
+        # The model, not a phrase list, applies coverage rules and decides
+        # whether the draft is already compliant or only a retry plan.
         if all_tool_calls:
             final_messages = [
                 *messages,

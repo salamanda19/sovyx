@@ -751,7 +751,12 @@ class TestFetchTool:
             data = _parse(await p.fetch("https://example.com", max_chars=100))
         assert data["ok"] is True
         assert data["truncated"] is True
-        assert len(str(data["text"])) <= 200  # 100 + "..."
+        text = str(data["text"])
+        assert text.startswith(_web_mod._TRUNCATION_NOTICE)
+        body = text[len(_web_mod._TRUNCATION_NOTICE) :]
+        assert body.endswith("...")
+        assert len(body) <= 103  # 100 + "..."
+        assert "truncated — start of page only" in str(data["message"])
 
     @pytest.mark.anyio()
     async def test_invalid_url(self) -> None:
@@ -865,9 +870,7 @@ class TestClassifyContentType:
         assert _web_mod._classify_content_type("", "<div class='main'>Hi</div>") == "html"
 
     def test_octet_stream_sniffs_json_as_api(self) -> None:
-        assert (
-            _web_mod._classify_content_type("application/octet-stream", '{"temp":15}') == "api"
-        )
+        assert _web_mod._classify_content_type("application/octet-stream", '{"temp":15}') == "api"
 
     def test_empty_header_sniffs_plain_text(self) -> None:
         assert _web_mod._classify_content_type("", "Kagoshima: ⛅ +15°C") == "text"
