@@ -12,7 +12,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from sovyx.cognitive.act import ActionResult
-from sovyx.dashboard.routes.chat import _persist_stream_turns
+from sovyx.dashboard.routes.chat import _EMPTY_STREAM_REPLY, _persist_stream_turns
 from sovyx.dashboard.server import create_app
 from sovyx.observability.tasks import mark_consumed, spawn
 
@@ -214,6 +214,24 @@ class TestPersistSurvivesDisconnect:
         assert text == "Kyoto forecast"
         assert tags[-1] == "brain"
         assert tracker.add_turn.await_count == 2  # noqa: PLR2004
+
+    @pytest.mark.asyncio()
+    async def test_persist_helper_replaces_blank_assistant_text(self) -> None:
+        """Empty Act text becomes a fixed note and is still persisted."""
+        tracker = AsyncMock()
+        result = ActionResult(
+            response_text="",
+            target_channel="dashboard",
+        )
+        text, _tags = await _persist_stream_turns(
+            tracker,
+            "conv-blank",  # type: ignore[arg-type]
+            "weather?",
+            result,
+        )
+        assert text == _EMPTY_STREAM_REPLY
+        assert tracker.add_turn.await_count == 2  # noqa: PLR2004
+        assert tracker.add_turn.await_args_list[1].args[2] == _EMPTY_STREAM_REPLY
 
     @pytest.mark.asyncio()
     async def test_spawned_persist_survives_consumer_cancel(self) -> None:

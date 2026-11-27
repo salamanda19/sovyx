@@ -27,6 +27,10 @@ logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api", dependencies=[Depends(verify_token)])
 
+# Operator-visible when Act returns blank text after a completed stream.
+# Keep in sync with dashboard ``EMPTY_ASSISTANT_FALLBACK`` in chat-session.ts.
+_EMPTY_STREAM_REPLY = "I finished this turn but the reply text was empty."
+
 
 async def _persist_stream_turns(
     conversation_tracker: ConversationTracker,
@@ -39,11 +43,15 @@ async def _persist_stream_turns(
     Runs inside the spawned cognitive task so client disconnect
     (which cancels the SSE generator) cannot skip DB writes.
     Returns ``(response_text, persist_tags)`` for the ``done`` event.
+    Blank ``response_text`` becomes ``_EMPTY_STREAM_REPLY`` so ``done``
+    and the DB never disagree on an empty assistant body.
     """
     await conversation_tracker.add_turn(conv_id, "user", user_text)
     response_text = result.response_text or ""
     if result.filtered:
         response_text = "I can't respond to that request."
+    elif not response_text.strip():
+        response_text = _EMPTY_STREAM_REPLY
 
     persist_tags: list[str] = []
     if result.tool_calls_made:
@@ -56,13 +64,12 @@ async def _persist_stream_turns(
         )
     persist_tags.append("brain")
 
-    if response_text:
-        await conversation_tracker.add_turn(
-            conv_id,
-            "assistant",
-            response_text,
-            metadata={"tags": persist_tags},
-        )
+    await conversation_tracker.add_turn(
+        conv_id,
+        "assistant",
+        response_text,
+        metadata={"tags": persist_tags},
+    )
     return response_text, persist_tags
 
 
