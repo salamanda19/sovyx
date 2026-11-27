@@ -156,6 +156,24 @@ describe("sendChatMessage", () => {
     const assistant = useDashboardStore.getState().chatMessages[1];
     expect(assistant?.content).toBe(EMPTY_ASSISTANT_FALLBACK);
   });
+
+  it("never paints tags/metrics with an empty assistant body", async () => {
+    mockApiFetch.mockResolvedValueOnce(
+      sseResponse([
+        'event: done\ndata: {"response":"","conversation_id":"conv-shell","tags":["web-intelligence","brain"],"model":"deepseek-chat","tokens_in":5707,"tokens_out":0,"latency_ms":18300,"provider":"deepseek"}\n\n',
+      ]),
+    );
+
+    await sendChatMessage("repeat weather");
+
+    const assistant = useDashboardStore.getState().chatMessages[1];
+    expect(assistant?.content.trim().length).toBeGreaterThan(0);
+    expect(assistant?.content).toBe(EMPTY_ASSISTANT_FALLBACK);
+    expect(assistant?.tags).toEqual(["web-intelligence", "brain"]);
+    expect(assistant?.model).toBe("deepseek-chat");
+    expect(assistant?.tokens_in).toBe(5707);
+    expect(assistant?.latency_ms).toBe(18300);
+  });
 });
 
 describe("pickFinalAssistantText", () => {

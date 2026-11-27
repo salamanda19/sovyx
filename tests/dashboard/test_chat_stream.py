@@ -44,6 +44,8 @@ def _wire_stream_registry(
     *,
     response_text: str = "Hello from stream",
     delay_s: float = 0.0,
+    emit_tokens: bool = True,
+    tool_calls: list[Any] | None = None,
 ) -> AsyncMock:
     """Wire PersonResolver / ConversationTracker / CognitiveLoop / Bridge."""
     from sovyx.bridge.identity import PersonResolver
@@ -68,12 +70,18 @@ def _wire_stream_registry(
             await on_phase("think", "streaming")
         if delay_s > 0:
             await asyncio.sleep(delay_s)
-        if on_text_chunk is not None:
+        if emit_tokens and response_text and on_text_chunk is not None:
             await on_text_chunk(response_text)
         return ActionResult(
             response_text=response_text,
             target_channel="dashboard",
-            metadata={"model": "test-model", "provider": "test"},
+            tool_calls_made=list(tool_calls or []),
+            metadata={
+                "model": "test-model",
+                "provider": "test",
+                "tokens_in": 5707,
+                "tokens_out": 0,
+            },
         )
 
     mock_loop = AsyncMock()
@@ -194,6 +202,45 @@ class TestStreamEndpoint:
         assert second.args[1] == "assistant"
         assert second.args[2] == "streamed answer"
 
+    def test_empty_act_text_after_tools_persists_note_and_done(
+        self,
+        app: Any,
+        client: TestClient,
+    ) -> None:
+        """Issue #3: blank Act text + tools → non-empty done/DB, not skip."""
+        from sovyx.llm.models import ToolCall
+
+        tracker = _wire_stream_registry(
+            app,
+            response_text="",
+            emit_tokens=False,
+            tool_calls=[
+                ToolCall(
+                    id="tc1",
+                    function_name="web-intelligence.fetch",
+                    arguments={"url": "https://example.invalid"},
+                ),
+            ],
+        )
+        resp = client.post(
+            "/api/chat/stream",
+            json={"message": "weather again"},
+        )
+        assert resp.status_code == 200  # noqa: PLR2004
+        events = _parse_sse(resp.text)
+        done_evt = next(d for t, d in events if t == "done")
+        assert done_evt["response"] == _EMPTY_STREAM_REPLY
+        assert done_evt["response"].strip()
+        assert "web-intelligence" in done_evt["tags"]
+        assert "brain" in done_evt["tags"]
+        assert done_evt.get("tokens_in") == 5707  # noqa: PLR2004
+        assert tracker.add_turn.await_count == 2  # noqa: PLR2004
+        user_call, assistant_call = tracker.add_turn.await_args_list
+        assert user_call.args[1] == "user"
+        assert user_call.args[2] == "weather again"
+        assert assistant_call.args[1] == "assistant"
+        assert assistant_call.args[2] == done_evt["response"]
+
 
 class TestPersistSurvivesDisconnect:
     """Turns persist inside the spawn task, not the SSE generator."""
@@ -232,6 +279,35 @@ class TestPersistSurvivesDisconnect:
         assert text == _EMPTY_STREAM_REPLY
         assert tracker.add_turn.await_count == 2  # noqa: PLR2004
         assert tracker.add_turn.await_args_list[1].args[2] == _EMPTY_STREAM_REPLY
+
+    @pytest.mark.asyncio()
+    async def test_persist_helper_blank_after_tools_keeps_plugin_tag(self) -> None:
+        """Empty text after tools still persists user+assistant with plugin tag."""
+        from sovyx.llm.models import ToolCall
+
+        tracker = AsyncMock()
+        result = ActionResult(
+            response_text="   ",
+            target_channel="dashboard",
+            tool_calls_made=[
+                ToolCall(
+                    id="tc1",
+                    function_name="web-intelligence.search",
+                    arguments={"query": "x"},
+                ),
+            ],
+        )
+        text, tags = await _persist_stream_turns(
+            tracker,
+            "conv-tools",  # type: ignore[arg-type]
+            "Kyushu weather",
+            result,
+        )
+        assert text == _EMPTY_STREAM_REPLY
+        assert tags == ["web-intelligence", "brain"]
+        assert tracker.add_turn.await_count == 2  # noqa: PLR2004
+        assert tracker.add_turn.await_args_list[0].args[1] == "user"
+        assert tracker.add_turn.await_args_list[1].args[2] == text
 
     @pytest.mark.asyncio()
     async def test_spawned_persist_survives_consumer_cancel(self) -> None:
