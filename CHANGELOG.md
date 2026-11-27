@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+### Fixed
+
+- Tool replies no longer treat a partial lookup as proof that the missing part does not exist. After tools run, the tools-off turn may keep only what the tools retrieved for the asked scope; anything not retrieved is reported as not retrieved, and is not filled with general knowledge presented as the looked-up answer. A plugin JSON body with `ok: false` is a failed tool result (the model sees a failure mark) without counting toward plugin auto-disable. A truncated `fetch` leads with a notice that the text is only the start of the page.
+- 工具回覆不再把「只查到一部分」說成「沒查到的部分不存在」。工具跑完後的收尾只保留工具實際抓到、且對得上提問範圍的內容；沒抓到的寫成這次沒查到，不用常識冒充查到的答案。插件回傳 JSON 且 `ok: false` 時，外層標成失敗（模型看到失敗記號），但不計入插件自動停用。`fetch` 被截斷時，正文開頭會註明這只是頁面開頭。
+
+### Verified
+
+- 2026-11-27, local image rebuilt from this branch (`sovyx:local`): two live chat questions (Kyushu major cities next week; Kyoto daily forecast 6–12 December) both finished as complete replies. Oita, Miyazaki, and 12 December were stated as not retrieved this time. No mid-retry sentence was stored as the answer. This check did not cover in-app navigation during a stream, or an empty tool reply.
+- 2026-11-27，以此分支重建本機映像（`sovyx:local`）：兩題即時聊天（九州各大城市下週；京都 12 月 6–12 日逐日預報）都寫成完整回答。大分、宮崎與 12 月 12 日被寫成這次沒查到。沒有把「再試一次」存成回答。這次沒有測應用內導航中途串流，也沒有測工具結果為空的回覆。
+
 ## [0.49.61] — 2026-07-03
 
 **Supersedes v0.49.60, whose publish FAILED on both Linux hard gates
