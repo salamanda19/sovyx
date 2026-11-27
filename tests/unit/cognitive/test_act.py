@@ -724,12 +724,12 @@ class TestReActLoop:
         Regression test: OpenAI rejects tool messages without matching tool_calls
         in the preceding assistant message (400 error).
         """
-        captured_messages: list[dict[str, object]] = []
+        captured_calls: list[list[dict[str, object]]] = []
         mock_router = AsyncMock()
 
         async def capture_generate(messages: object, **_kwargs: object) -> LLMResponse:
             assert isinstance(messages, list)
-            captured_messages.extend(messages)
+            captured_calls.append(list(messages))
             return _response("Done!", finish_reason="stop")
 
         mock_router.generate = AsyncMock(side_effect=capture_generate)
@@ -758,8 +758,10 @@ class TestReActLoop:
             _perception("what is 1+2"),
         )
 
-        # Find assistant message with tool_calls
-        assistant_msgs = [m for m in captured_messages if m.get("role") == "assistant"]
+        # Protocol shape is on the tool-using reinvoke, not the later tools-off turn.
+        assert len(captured_calls) == 2
+        first = captured_calls[0]
+        assistant_msgs = [m for m in first if m.get("role") == "assistant"]
         assert len(assistant_msgs) == 1
         assert "tool_calls" in assistant_msgs[0], "Assistant message must include tool_calls"
         tool_calls_field = assistant_msgs[0]["tool_calls"]
@@ -773,7 +775,7 @@ class TestReActLoop:
         assert isinstance(tool_calls_field[0]["function"]["arguments"], str)
 
         # Find tool result message
-        tool_msgs = [m for m in captured_messages if m.get("role") == "tool"]
+        tool_msgs = [m for m in first if m.get("role") == "tool"]
         assert len(tool_msgs) == 1
         assert tool_msgs[0].get("tool_call_id") == "tc1", "Tool result must have tool_call_id"
 
@@ -905,38 +907,57 @@ class TestReActUnfinishedReply:
         assert "could not finish a full answer" in result.response_text
         assert "snippet about Fukuoka" in result.response_text
 
-    async def test_is_unfinished_tool_reply_helpers(self) -> None:
-        assert ActPhase._is_unfinished_tool_reply("") is True
-        assert ActPhase._is_unfinished_tool_reply(
-            "The multi-city call failed — let me try single-city API calls."
+    async def test_retry_plan_in_any_language_is_rewritten(self) -> None:
+        """A non-English 'I'll try again' draft is not kept via keyword match."""
+        draft = "多城查詢失敗，讓我再試單城。"
+        answer = "福岡下周多雲，大約 15 度。"
+        seen: list[str] = []
+        mock_router = AsyncMock()
+
+        async def generate(messages: object, **_kwargs: object) -> LLMResponse:
+            assert isinstance(messages, list)
+            last = messages[-1]
+            if isinstance(last, dict) and last.get("role") == "user":
+                seen.append(str(last.get("content")))
+                return _response(answer, finish_reason="stop")
+            return _response(draft, finish_reason="stop")
+
+        mock_router.generate = AsyncMock(side_effect=generate)
+
+        mock_mgr = AsyncMock()
+        mock_mgr.plugin_count = 1
+        mock_mgr.get_tool_definitions = MagicMock(return_value=[])
+        mock_mgr.execute = AsyncMock(
+            return_value=MagicMock(
+                name="web-intelligence.search",
+                output="Found 5 results",
+                success=True,
+            ),
         )
-        assert ActPhase._is_unfinished_tool_reply(
-            "Direct API call failed — let me try again and also pull a forecast page:"
+
+        executor = ToolExecutor(plugin_manager=mock_mgr)
+        act = ActPhase(tool_executor=executor, llm_router=mock_router)
+
+        result = await act.process(
+            _response(
+                content="查一下。",
+                finish_reason="tool_use",
+                tool_calls=[
+                    ToolCall(
+                        id="tc1",
+                        function_name="web-intelligence.search",
+                        arguments={"query": "九州 天氣"},
+                    ),
+                ],
+            ),
+            [{"role": "user", "content": "九州天氣"}],
+            _perception("九州天氣"),
         )
-        assert ActPhase._is_unfinished_tool_reply("Fukuoka will be mild next week.") is False
-        # User-facing advice is not a first-person retry plan.
-        assert (
-            ActPhase._is_unfinished_tool_reply("Please try again with a city name.") is False
-        )
-        # Trailing colon alone must not flag unfinished.
-        assert ActPhase._is_unfinished_tool_reply("Don't try the old URL:") is False
-        # Retry marker with a long answer tail must be kept.
-        assert (
-            ActPhase._is_unfinished_tool_reply(
-                "Let me try to summarize: Fukuoka is about 15°C and cloudy, "
-                "Kagoshima similar, and Nagasaki stays wet for most of next week."
-            )
-            is False
-        )
-        # Long reply that happens to contain "let me try" must be kept.
-        long_answer = (
-            "Here is the forecast for major Kyushu cities next week. "
-            "Fukuoka looks mild around 15°C with clouds. "
-            "Kumamoto is similar. Kagoshima stays a bit warmer. "
-            "Let me try to keep this brief for travel planning: pack a light jacket."
-        )
-        assert len(long_answer) > 200
-        assert ActPhase._is_unfinished_tool_reply(long_answer) is False
+
+        assert result.response_text == answer
+        assert result.degraded is False
+        assert seen and draft in seen[0]
+        assert mock_router.generate.call_args_list[-1].kwargs.get("tools") is None
 
 
 class TestSummarizeToolResults:

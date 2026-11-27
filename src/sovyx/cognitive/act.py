@@ -5,10 +5,11 @@ injects results back, and re-invokes the LLM (max iterations configurable).
 Financial gate integration preserved — financial tool calls require user
 confirmation before execution.
 
-When the loop ends unfinished (still requesting tools, empty body, or
-retry chatter like "let me try again"), ActPhase does one tools-disabled
-completion turn, then falls back to a fixed degraded note built from
-tool results rather than persisting the unfinished sentence.
+After tools run, ActPhase always takes one tools-disabled turn so the
+model can keep a finished answer or replace a "I'll try again" plan.
+That judgment is the model's, in whatever language the draft uses —
+there is no keyword list. An empty result or another tool request falls
+back to a fixed degraded note.
 
 Spec: SPE-003 §4 (ReAct pattern), SPE-008 §6 (PluginManager dispatch)
 """
@@ -17,7 +18,6 @@ from __future__ import annotations
 
 import dataclasses
 import json
-import re
 from typing import TYPE_CHECKING, Any
 
 from sovyx.llm.models import ToolCall, ToolResult
@@ -35,15 +35,17 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-# First-person mid-retry plans only — not user-facing "please try again".
-_RETRY_REPLY_RE = re.compile(
-    r"(let me try|i'?ll try|i will try|let me check again)",
-    re.IGNORECASE,
+# Language-agnostic instruction. The model decides whether the draft is a
+# finished answer or only a plan to try again; we do not match phrases.
+_FINAL_ANSWER_INSTRUCTION = (
+    "Write the final reply to the user from the tool results above. "
+    "The draft may be in any language. "
+    "If the draft already answers the user, return that answer unchanged. "
+    "If the draft only says you will try again, look something up, or call "
+    "another tool — in any language — do not repeat that plan. "
+    "Answer from the tool results instead. Do not announce another attempt.\n\n"
+    "Draft:\n{draft}"
 )
-# Only short replies can be unfinished retry plans. Longer text already answered.
-_MAX_UNFINISHED_CHARS = 200
-# After a retry marker, this much trailing text still counts as "only a plan".
-_MAX_RETRY_TAIL_CHARS = 80
 
 
 @dataclasses.dataclass
@@ -479,19 +481,23 @@ class ActPhase:
 
         response_text = self._text_content(current_response)
         degraded = False
-        pending_tools = current_response.tool_calls
-        still_wants_tools = isinstance(pending_tools, list) and bool(pending_tools)
 
-        # Tools ran but the model is still mid-plan (more tool_calls, empty
-        # body, or "let me try again" chatter). One tools-off turn to write
-        # a real reply; if that is still unfinished, use a fixed note.
-        needs_completion = bool(all_tool_calls) and (
-            still_wants_tools or self._is_unfinished_tool_reply(response_text)
-        )
-        if needs_completion:
+        # Tools ran. One tools-off turn writes the user-visible reply.
+        # The model, not a phrase list, decides whether the draft is already
+        # an answer or only a plan to try again (any language).
+        if all_tool_calls:
+            final_messages = [
+                *messages,
+                {
+                    "role": "user",
+                    "content": _FINAL_ANSWER_INSTRUCTION.format(
+                        draft=response_text or "(empty)",
+                    ),
+                },
+            ]
             try:
                 current_response = await self._router.generate(
-                    messages=messages,
+                    messages=final_messages,
                     tools=None,
                     phase="act",
                     mind_id=mind_id,
@@ -503,7 +509,7 @@ class ActPhase:
 
             pending_after = current_response.tool_calls
             still_wants_tools_after = isinstance(pending_after, list) and bool(pending_after)
-            if self._is_unfinished_tool_reply(response_text) or still_wants_tools_after:
+            if not response_text or still_wants_tools_after:
                 response_text = self._degraded_tool_note(all_results)
                 degraded = True
                 logger.info(
@@ -543,31 +549,6 @@ class ActPhase:
         """Return response.content when it is a real string."""
         content = response.content
         return content if isinstance(content, str) else ""
-
-    @staticmethod
-    def _is_unfinished_tool_reply(text: str) -> bool:
-        """True when the whole reply is empty or only a short first-person retry plan.
-
-        Matches "let me try…" / "I'll try…" with a short tail. Does not match
-        user-facing advice like "Please try again with a city name." A longer
-        reply that happens to contain "let me try" is kept.
-        """
-        if not isinstance(text, str):
-            return True
-        stripped = text.strip()
-        if not stripped:
-            return True
-        # A longer reply already started answering.
-        if len(stripped) > _MAX_UNFINISHED_CHARS:
-            return False
-
-        match = _RETRY_REPLY_RE.search(stripped)
-        if match is None:
-            return False
-        tail = stripped[match.end() :].strip()
-        # "let me try single-city API calls." → short tail → unfinished.
-        # "let me try to summarize: Fukuoka is 15°C ..." → long tail → keep.
-        return len(tail) <= _MAX_RETRY_TAIL_CHARS
 
     @staticmethod
     def _summarize_tool_results(results: list[ToolResult]) -> str:
