@@ -80,7 +80,7 @@ The canonical list lives in [`api-reference.md`](../api-reference.md). Grouped h
 | `observability` | `/api/observability/*` |
 | `plugins` | `/api/plugins`, `/api/plugins/{name}`, `/api/plugins/tools`, `/api/plugins/{name}/{enable|disable|reload}` |
 | `channels` | `/api/channels`, `/api/channels/telegram/setup` |
-| `chat` | `POST /api/chat`, `POST /api/chat/stream` |
+| `chat` | `POST /api/chat`, `POST /api/chat/stream` (SSE: `conversation` early id, then `phase`/`token`/`done`/`error`; turns persist in the spawned task so disconnect cannot skip DB writes) |
 | `data` | `/api/export`, `/api/import` |
 | `safety` | `/api/safety/{stats,status,history,rules}` |
 | `providers` | `/api/providers` |

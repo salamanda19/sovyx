@@ -3,6 +3,16 @@
 Enterprise-grade web search with multi-backend support, content extraction,
 source credibility scoring, brain integration, and intelligent caching.
 
+Model-visible tools: ``search`` (ordinary facts, including weather/prices),
+``fetch`` (open a pasted or search-result page), ``research`` (multi-article
+only), ``learn_from_web``, ``recall_web``. Keyword ``lookup`` shortcuts were
+removed — they diverted successful searches into broken geocode/API paths.
+
+Truncated ``fetch`` bodies lead with an explicit start-of-page notice so
+the model cannot treat a clipped page as complete. Soft ``{"ok": false}``
+payloads are marked failed by ``PluginManager`` (✗ for the model) without
+auto-disabling the plugin.
+
 Default backend: DuckDuckGo (zero API key).
 Optional: SearXNG (self-hosted), Brave (API key).
 
@@ -31,6 +41,10 @@ _MAX_QUERY_LEN = 500
 _MAX_RESULTS_DEFAULT = 5
 _MAX_RESULTS_CAP = 20
 _MAX_FETCH_CHARS = 4000
+_TRUNCATION_NOTICE = (
+    "[TRUNCATED: this is only the start of the page, not the full "
+    "document. Later sections are missing.]\n\n"
+)
 _SEARCH_TIMEOUT = 10.0
 _FETCH_TIMEOUT = 15.0
 _RATE_LIMIT_SEARCHES = 30
@@ -52,10 +66,12 @@ _MSG_RATE_LIMIT = "rate limit exceeded"
 _MSG_SEARCH_TIMEOUT = "search timed out"
 _MSG_FETCH_TIMEOUT = "fetch timed out"
 _MSG_RESEARCH_TIMEOUT = "research timed out"
-_MSG_LOOKUP_TIMEOUT = "lookup timed out"
 _MSG_EMPTY_NAME = "name cannot be empty"
 _MSG_EMPTY_CONTENT = "content cannot be empty"
-_MSG_WEATHER_ERROR = "error fetching weather data"
+_MSG_FETCH_NOT_PAGE = (
+    "This URL returned structured/API data, not a readable page. "
+    "Answer from the search snippets instead of fetching this URL."
+)
 
 # Control characters to strip from queries
 _CONTROL_CHARS = str.maketrans("", "", "".join(chr(c) for c in range(32) if c not in (10, 13)))
@@ -483,6 +499,19 @@ def _ok(action: str, **kwargs: object) -> str:
 def _err(message: str) -> str:
     """Build error JSON response."""
     return json.dumps({"ok": False, "action": "error", "message": message})
+
+
+def _apply_fetch_truncation(text: str, max_chars: int) -> tuple[str, bool]:
+    """Clip *text* to *max_chars* and prepend a start-of-page notice.
+
+    Returns ``(possibly_clipped_text, truncated)``. The notice is placed
+    first so a model that only reads the beginning still sees that later
+    content is missing.
+    """
+    if len(text) <= max_chars:
+        return text, False
+    clipped = text[:max_chars] + "..."
+    return _TRUNCATION_NOTICE + clipped, True
 
 
 class _RateLimiter:
@@ -1206,13 +1235,15 @@ class WebIntelligencePlugin(ISovyxPlugin):
 
     @tool(
         description=(
-            "Search the web for information. Modes: "
+            "Search the web for information. Use this for ordinary facts, "
+            "weather, prices, news, and definitions — send the user's "
+            "question as the query. Modes: "
             "'auto' (smart routing based on query intent — default), "
             "'web' (general search), "
             "'news' (recent news articles). "
             "Auto mode classifies intent (factual/temporal/price/procedural) "
             "and routes to the best search type automatically. "
-            "Example: search(query='Bitcoin price today')"
+            "Example: search(query='Kyushu weather forecast next week')"
         ),
     )
     async def search(
@@ -1308,9 +1339,11 @@ class WebIntelligencePlugin(ISovyxPlugin):
 
     @tool(
         description=(
-            "Fetch and extract readable content from a URL. "
-            "Extracts main text, title, author, date using trafilatura. "
-            "Returns structured content with metadata. "
+            "Open one web page and extract readable text. "
+            "Use only for a URL the user pasted or a page URL already "
+            "returned by search(). Accepts HTML pages and plain text. "
+            "Do not use for JSON/API endpoints — answer from search "
+            "snippets instead. "
             "Example: fetch(url='https://reuters.com/article/example')"
         ),
     )
@@ -1320,14 +1353,15 @@ class WebIntelligencePlugin(ISovyxPlugin):
         *,
         max_chars: int = _MAX_FETCH_CHARS,
     ) -> str:
-        """Fetch and extract content from a URL.
+        """Open a page URL and extract readable content.
 
         Args:
-            url: HTTP(S) URL to fetch.
+            url: HTTP(S) page URL to open.
             max_chars: Maximum characters to return (default 4000).
 
         Returns:
-            JSON with extracted text, title, author, date, and metadata.
+            JSON with extracted text and metadata, or a clear error when
+            the URL is not a readable page.
         """
         url = url.strip()
 
@@ -1343,24 +1377,47 @@ class WebIntelligencePlugin(ISovyxPlugin):
         max_chars = max(100, min(50000, max_chars))
 
         try:
-            html = await asyncio.wait_for(
-                _fetch_html(url),
+            fetched = await asyncio.wait_for(
+                _fetch_url(url),
                 timeout=_FETCH_TIMEOUT,
             )
-            if html is None:
+            if fetched is None:
                 return _err(_MSG_FETCH_FAILED)
 
-            # Extract with trafilatura (preferred) or fallback
-            extracted = _extract_content(html, url)
+            kind, body, _content_type = fetched
+            if kind == "api":
+                return _err(_MSG_FETCH_NOT_PAGE)
 
-            # Truncate content
-            text = extracted["text"]
-            truncated = len(text) > max_chars
-            if truncated:
-                text = text[:max_chars] + "..."
-                extracted["text"] = text
+            if kind == "text":
+                text, truncated = _apply_fetch_truncation(body, max_chars)
+                cred = score_credibility(url)
+                trunc_note = " (truncated — start of page only)" if truncated else ""
+                return _ok(
+                    "fetch",
+                    url=url,
+                    title="",
+                    author="",
+                    date="",
+                    language="",
+                    site=_extract_domain(url),
+                    text=text,
+                    char_count=len(text),
+                    truncated=truncated,
+                    credibility=cred.to_dict(),
+                    result=text[:200],
+                    message=(f"Fetched {len(text)} chars of plain text from {url}{trunc_note}"),
+                )
+
+            # HTML page
+            extracted = _extract_content(body, url)
+            text, truncated = _apply_fetch_truncation(
+                str(extracted["text"]),
+                max_chars,
+            )
+            extracted["text"] = text
 
             cred = score_credibility(url)
+            trunc_note = " (truncated — start of page only)" if truncated else ""
             return _ok(
                 "fetch",
                 url=url,
@@ -1377,6 +1434,7 @@ class WebIntelligencePlugin(ISovyxPlugin):
                 message=(
                     f"Fetched {len(text)} chars from {extracted['site'] or url}"
                     + (f" by {extracted['author']}" if extracted["author"] else "")
+                    + trunc_note
                 ),
             )
         except TimeoutError:
@@ -1391,10 +1449,11 @@ class WebIntelligencePlugin(ISovyxPlugin):
 
     @tool(
         description=(
-            "Deep research on a topic: searches, fetches top sources, "
-            "extracts content, scores credibility, and returns organized "
-            "findings with numbered citations. Use for complex questions "
-            "that need multiple sources. "
+            "Deep research that needs several articles: searches, opens "
+            "top pages, extracts content, scores credibility, and returns "
+            "organized findings with citations. Do NOT use for a simple "
+            "weather, price, definition, or single-fact question — use "
+            "search() instead. "
             "Example: research(query='impact of US tariffs on crypto market 2025')"
         ),
     )
@@ -1705,284 +1764,6 @@ class WebIntelligencePlugin(ISovyxPlugin):
         except Exception as e:  # noqa: BLE001
             return _err(f"brain recall failed: {e}")
 
-    # ── Quick Lookup Tool ──
-
-    @tool(
-        description=(
-            "Quick lookup for instant answers: definitions, conversions, "
-            "prices, and facts. Faster than full search — uses DuckDuckGo "
-            "instant answers when available, falls back to web search. "
-            "Modes: 'define' (word/concept definition), "
-            "'convert' (unit/currency conversion), "
-            "'price' (crypto/stock price lookup), "
-            "'auto' (detect from query — default). "
-            "Example: lookup(query='bitcoin price') or "
-            "lookup(query='what is kubernetes', mode='define')"
-        ),
-    )
-    async def lookup(
-        self,
-        query: str,
-        *,
-        mode: str = "auto",
-    ) -> str:
-        """Quick lookup for instant answers.
-
-        Args:
-            query: Lookup query.
-            mode: 'auto', 'define', 'convert', 'price', or 'weather'.
-
-        Returns:
-            JSON with answer, source, and type.
-        """
-        query = _sanitize_query(query)
-        if not query:
-            return _err(_MSG_EMPTY_QUERY)
-        if len(query) > _MAX_QUERY_LEN:
-            return _err(_MSG_QUERY_TOO_LONG)
-        mode = mode.strip().lower()
-
-        if mode == "auto":
-            mode = self._detect_lookup_mode(query)
-
-        # Check cache
-        cached = self._cache.get(f"lookup:{query}", mode)
-        if cached is not None:
-            return cached
-
-        try:
-            result = await asyncio.wait_for(
-                self._do_lookup(query, mode),
-                timeout=_SEARCH_TIMEOUT,
-            )
-            # Cache with appropriate TTL
-            intent = "price" if mode == "price" else "factual"
-            self._cache.put(f"lookup:{query}", mode, result, intent)
-            return result
-        except TimeoutError:
-            return _err(_MSG_LOOKUP_TIMEOUT)
-        except Exception as e:  # noqa: BLE001
-            return _err(f"lookup failed: {e}")
-
-    @staticmethod
-    def _detect_lookup_mode(query: str) -> str:
-        """Auto-detect lookup mode from query."""
-        q = query.lower()
-
-        # Weather detection
-        weather_triggers = {
-            "weather",
-            "temperatura",
-            "temperature",
-            "forecast",
-            "previsão",
-            "clima",
-            "rain",
-            "chuva",
-            "will it rain",
-            "vai chover",
-        }
-        if any(t in q for t in weather_triggers):
-            return "weather"
-
-        # Price detection
-        price_triggers = {
-            "price",
-            "preço",
-            "cotação",
-            "valor",
-            "bitcoin",
-            "btc",
-            "eth",
-            "ethereum",
-            "stock",
-            "ação",
-            "nasdaq",
-        }
-        if any(t in q for t in price_triggers):
-            return "price"
-
-        # Conversion detection
-        convert_triggers = {
-            " to ",
-            " in ",
-            " para ",
-            " em ",
-            "convert",
-            "converter",
-            "how many",
-            "quantos",
-        }
-        if any(t in q for t in convert_triggers):
-            return "convert"
-
-        # Definition detection
-        define_triggers = {
-            "what is",
-            "what are",
-            "o que é",
-            "o que são",
-            "define",
-            "definição",
-            "meaning",
-            "significado",
-        }
-        if any(t in q for t in define_triggers):
-            return "define"
-
-        return "define"  # default
-
-    async def _do_lookup(self, query: str, mode: str) -> str:
-        """Execute lookup via search backend."""
-        # Weather mode — use Open-Meteo directly if available
-        if mode == "weather":
-            return await self._weather_lookup(query)
-
-        # Rate limit
-        if not self._rate_limiter.check():
-            return _err(_MSG_RATE_LIMIT)
-
-        # Use web search with small result count for quick answers
-        search_query = query
-        if mode == "define":
-            if not any(w in query.lower() for w in ("define", "what is", "o que")):
-                search_query = f"what is {query}"
-        elif mode == "price":
-            if "price" not in query.lower() and "preço" not in query.lower():
-                search_query = f"{query} price"
-        elif mode == "convert":
-            search_query = query  # user query usually well-formed
-
-        results = await self._backend.search_text(search_query, 3)
-        if not results:
-            return _err(f"no results for '{query}'")
-
-        # Build concise answer from top results
-        top = results[0]
-        snippets = [r.snippet for r in results[:3] if r.snippet]
-
-        return _ok(
-            "lookup",
-            mode=mode,
-            query=query,
-            answer=top.snippet,
-            source=top.source,
-            url=top.url,
-            title=top.title,
-            credibility=score_credibility(top.url).to_dict(),
-            supporting_snippets=snippets[1:] if len(snippets) > 1 else [],
-            result=top.snippet[:200],
-            message=f"Quick answer from {top.source}: {top.snippet[:100]}",
-        )
-
-    async def _weather_lookup(self, query: str) -> str:
-        """Weather lookup via Open-Meteo (same backend as WeatherPlugin)."""
-        try:
-            from sovyx.plugins.official.weather import (  # noqa: PLC0415
-                _WMO_CODES,
-                _fetch_weather,
-                _geocode,
-            )
-        except ImportError:
-            # Fallback to web search for weather
-            if not self._rate_limiter.check():
-                return _err(_MSG_RATE_LIMIT)
-            results = await self._backend.search_text(f"{query} weather", 3)
-            if not results:
-                return _err(f"no weather results for '{query}'")
-            top = results[0]
-            return _ok(
-                "lookup",
-                mode="weather",
-                query=query,
-                answer=top.snippet,
-                source="web search",
-                url=top.url,
-                result=top.snippet[:200],
-                message=f"Weather (web): {top.snippet[:100]}",
-            )
-
-        # Extract city name from query
-        city = _extract_city(query)
-        coords = await _geocode(city)
-        if coords is None:
-            return _err(f"could not find city: {city}")
-
-        lat, lon, display_name = coords
-        data = await _fetch_weather(lat, lon, forecast_days=1)
-        if data is None:
-            return _err(_MSG_WEATHER_ERROR)
-
-        current: dict[str, Any] = data.get("current", {})
-        temp = current.get("temperature_2m", "?")
-        humidity = current.get("relative_humidity_2m", "?")
-        wind = current.get("wind_speed_10m", "?")
-        code = current.get("weather_code", 0)
-        condition = _WMO_CODES.get(int(code), "Unknown")
-
-        answer = f"{condition}, {temp}°C | Humidity: {humidity}% | Wind: {wind} km/h"
-
-        return _ok(
-            "lookup",
-            mode="weather",
-            query=query,
-            city=display_name,
-            answer=answer,
-            temperature_c=temp,
-            humidity_pct=humidity,
-            wind_kmh=wind,
-            condition=condition,
-            source="Open-Meteo",
-            url="https://open-meteo.com/",
-            credibility={
-                "score": 0.85,
-                "tier": "tier2",
-                "domain": "open-meteo.com",
-                "reasons": ["weather API"],
-            },
-            result=f"Weather in {display_name}: {answer}",
-            message=f"Weather in {display_name}: {answer}",
-        )
-
-
-def _extract_city(query: str) -> str:
-    """Extract city name from weather query."""
-    q = query.lower()
-    # Remove common weather-related words
-    remove_words = {
-        "weather",
-        "forecast",
-        "temperature",
-        "rain",
-        "clima",
-        "previsão",
-        "temperatura",
-        "chuva",
-        "tempo",
-        "will it",
-        "vai",
-        "chover",
-        "in",
-        "em",
-        "for",
-        "para",
-        "what is the",
-        "what's the",
-        "how is the",
-        "como está o",
-        "qual",
-        "hoje",
-        "today",
-        "tomorrow",
-        "amanhã",
-    }
-    words = q.split()
-    city_words = [w for w in words if w not in remove_words]
-    # If we stripped everything, use the original minus the first trigger word
-    if not city_words:
-        return query.strip()
-    return " ".join(city_words).strip().title()
-
 
 # ── URL Validation ──
 
@@ -2041,23 +1822,63 @@ def _validate_url(url: str) -> str:
     return ""
 
 
-# ── HTML Fetching ──
+# ── URL Fetching ──
 
 
-async def _fetch_html(url: str) -> str | None:
-    """Fetch HTML content from URL through the sandboxed HTTP client.
+def _classify_content_type(content_type: str, body: str = "") -> str:
+    """Map Content-Type (and body sniff when needed) to fetch handling kind.
+
+    Returns:
+        ``html``, ``text``, or ``api`` (JSON / structured payloads).
+
+    Explicit ``application/json`` (and similar) stay ``api``. Empty or
+    opaque types (``application/octet-stream``) sniff the body: HTML
+    markers → ``html``, JSON-looking → ``api``, otherwise ``text``.
+    """
+    ct = content_type.lower()
+    # Strip parameters (e.g. charset)
+    ct = ct.split(";", 1)[0].strip()
+    if "html" in ct or "xhtml" in ct:
+        return "html"
+    if ct.startswith("text/"):
+        return "text"
+    if ct in {"", "application/octet-stream"} or ct.startswith("application/octet-stream"):
+        return _sniff_body_kind(body)
+    # Explicit JSON and other structured API payloads — not readable pages.
+    return "api"
+
+
+def _sniff_body_kind(body: str) -> str:
+    """Guess fetch kind from body when Content-Type is missing or opaque."""
+    sample = body.lstrip()[:256]
+    lower = sample.lower()
+    if lower.startswith("{") or lower.startswith("["):
+        return "api"
+    # Any markup starting with '<' — including <head>, <div>, <?xml — is HTML.
+    # Without a Content-Type, treating tag soup as plain text shows raw markup.
+    if lower.startswith("<"):
+        return "html"
+    return "text"
+
+
+async def _fetch_url(url: str) -> tuple[str, str, str] | None:
+    """Fetch a URL through the sandboxed HTTP client.
 
     Uses :class:`SandboxedHttpClient` in ``allow_any_domain`` mode — the
     ``fetch`` tool by design retrieves arbitrary user-supplied URLs from
     the public web, so a domain allowlist doesn't fit. The other sandbox
     protections (local-IP block for SSRF, DNS-rebinding check, per-plugin
     rate limit, timeout, response-size cap) still apply.
+
+    Returns:
+        ``(kind, body, content_type)`` where kind is ``html``, ``text``,
+        or ``api``; or ``None`` on hard transport failure.
     """
     from sovyx.plugins.sandbox_http import SandboxedHttpClient  # noqa: PLC0415
 
     headers = {
         "User-Agent": "Mozilla/5.0 (compatible; SovyxBot/1.0; +https://sovyx.ai)",
-        "Accept": "text/html,application/xhtml+xml,*/*",
+        "Accept": "text/html,application/xhtml+xml,text/plain,*/*",
     }
     client = SandboxedHttpClient(
         plugin_name="web_intelligence.fetch",
@@ -2069,18 +1890,32 @@ async def _fetch_html(url: str) -> str | None:
         resp = await client.get(url, headers=headers)
         if resp.status_code != 200:  # noqa: PLR2004
             return None
-        content_type = resp.headers.get("content-type", "")
-        if "text/html" not in content_type and "xhtml" not in content_type:
-            return None
         # Explicit size check — sandbox logs oversize via content-length
         # header, but the actual body length is the ground truth.
         if len(resp.content) > 1_048_576:
             return None
-        return resp.text
+        content_type = resp.headers.get("content-type", "") or ""
+        body = resp.text
+        kind = _classify_content_type(content_type, body)
+        return (kind, body, content_type)
     except Exception:  # noqa: BLE001
         return None
     finally:
         await client.close()
+
+
+async def _fetch_html(url: str) -> str | None:
+    """Fetch HTML body only (used by ``research`` page extraction).
+
+    Non-HTML responses return ``None`` so research skips the source.
+    """
+    fetched = await _fetch_url(url)
+    if fetched is None:
+        return None
+    kind, body, _content_type = fetched
+    if kind != "html":
+        return None
+    return body
 
 
 # ── Content Extraction ──

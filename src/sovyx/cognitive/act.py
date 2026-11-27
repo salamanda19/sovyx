@@ -5,6 +5,15 @@ injects results back, and re-invokes the LLM (max iterations configurable).
 Financial gate integration preserved — financial tool calls require user
 confirmation before execution.
 
+After tools run, ActPhase always takes one tools-disabled turn. The model
+rewrites or keeps the draft under coverage rules: answer only what the
+tools retrieved for the user's asked scope; missed scope is "not
+retrieved this time", never "does not exist", and never filled with
+general knowledge presented as the looked-up answer. Retry-only drafts
+are replaced. That judgment is the model's, in whatever language the
+draft uses — there is no keyword list. An empty result or another tool
+request falls back to a fixed degraded note.
+
 Spec: SPE-003 §4 (ReAct pattern), SPE-008 §6 (PluginManager dispatch)
 """
 
@@ -28,6 +37,29 @@ if TYPE_CHECKING:
     from sovyx.plugins.manager import PluginManager
 
 logger = get_logger(__name__)
+
+# Language-agnostic instruction. The model applies coverage rules and
+# decides whether the draft is already compliant or only a retry plan;
+# we do not match phrases.
+_FINAL_ANSWER_INSTRUCTION = (
+    "Write the final reply to the user from the tool results above. "
+    "The draft may be in any language.\n\n"
+    "Coverage rules (any language):\n"
+    "- Cover only what the tool results actually retrieved for the "
+    "user's asked scope (places, dates, facts, amounts).\n"
+    "- If tools missed part of that scope, say it was not retrieved "
+    "this time. Do not say that information does not exist, and do not "
+    "fill the gap with general knowledge, climate averages, or memory "
+    "presented as the looked-up answer.\n"
+    "- Keep parts that were retrieved tied to those tool results.\n"
+    "- If the draft already obeys these rules, you may return it "
+    "unchanged; otherwise rewrite it.\n\n"
+    "If the draft only says you will try again, look something up, or "
+    "call another tool — in any language — do not repeat that plan. "
+    "Answer from the tool results instead. Do not announce another "
+    "attempt.\n\n"
+    "Draft:\n{draft}"
+)
 
 
 @dataclasses.dataclass
@@ -366,11 +398,14 @@ class ActPhase:
         """
         current_response = llm_response
         all_tool_calls: list[ToolCall] = []
+        all_results: list[ToolResult] = []
         messages: list[dict[str, Any]] = list(assembled_messages)
 
         for iteration in range(self._tools.max_depth):
             tool_calls = current_response.tool_calls
-            if not tool_calls:
+            # Require a real list — MagicMock tool_calls is truthy and would
+            # spin the loop when tests omit a configured LLM router.
+            if not isinstance(tool_calls, list) or not tool_calls:
                 break
 
             # Financial gate: check before execution
@@ -387,6 +422,7 @@ class ActPhase:
             # Execute tool calls
             results = await self._tools.execute(tool_calls)
             all_tool_calls.extend(tool_calls)
+            all_results.extend(results)
 
             logger.info(
                 "react_iteration",
@@ -447,7 +483,7 @@ class ActPhase:
             except Exception as e:  # noqa: BLE001
                 logger.error("react_reinvoke_failed", error=str(e))
                 # Fall back to last known content or tool results summary
-                fallback = self._summarize_tool_results(results)
+                fallback = self._degraded_tool_note(all_results)
                 text = self._apply_pii_guard(fallback)
                 return ActionResult(
                     response_text=text,
@@ -457,8 +493,45 @@ class ActPhase:
                     degraded=True,
                 )
 
-        # Final response (after loop ends or no more tool_calls)
-        response_text = current_response.content or ""
+        response_text = self._text_content(current_response)
+        degraded = False
+
+        # Tools ran. One tools-off turn writes the user-visible reply.
+        # The model, not a phrase list, applies coverage rules and decides
+        # whether the draft is already compliant or only a retry plan.
+        if all_tool_calls:
+            final_messages = [
+                *messages,
+                {
+                    "role": "user",
+                    "content": _FINAL_ANSWER_INSTRUCTION.format(
+                        draft=response_text or "(empty)",
+                    ),
+                },
+            ]
+            try:
+                current_response = await self._router.generate(
+                    messages=final_messages,
+                    tools=None,
+                    phase="act",
+                    mind_id=mind_id,
+                )
+                response_text = self._text_content(current_response)
+            except Exception as e:  # noqa: BLE001
+                logger.error("react_final_completion_failed", error=str(e))
+                response_text = ""
+
+            pending_after = current_response.tool_calls
+            still_wants_tools_after = isinstance(pending_after, list) and bool(pending_after)
+            if not response_text or still_wants_tools_after:
+                response_text = self._degraded_tool_note(all_results)
+                degraded = True
+                logger.info(
+                    "react_unfinished_reply_replaced",
+                    tool_calls=len(all_tool_calls),
+                    result_count=len(all_results),
+                )
+
         text, was_filtered, reason = await self._apply_output_guard(response_text, mind_id)
         text = self._apply_pii_guard(text)
 
@@ -469,6 +542,7 @@ class ActPhase:
             tool_calls_made=all_tool_calls,
             output_filtered=was_filtered,
             filter_reason=reason,
+            degraded=degraded,
         )
 
     def _get_tools_for_reinvocation(self) -> list[dict[str, object]] | None:
@@ -485,6 +559,12 @@ class ActPhase:
         )
 
     @staticmethod
+    def _text_content(response: LLMResponse) -> str:
+        """Return response.content when it is a real string."""
+        content = response.content
+        return content if isinstance(content, str) else ""
+
+    @staticmethod
     def _summarize_tool_results(results: list[ToolResult]) -> str:
         """Summarize tool results for fallback display."""
         if not results:
@@ -494,3 +574,17 @@ class ActPhase:
             status = "✓" if r.success else "✗"
             lines.append(f"{status} {r.name}: {r.output}")
         return "\n".join(lines)
+
+    @classmethod
+    def _degraded_tool_note(cls, results: list[ToolResult]) -> str:
+        """Fixed operator-visible note when the model never finished answering."""
+        if not results:
+            return (
+                "I looked this up but could not finish a full answer, "
+                "and the tools returned no usable results."
+            )
+        summary = cls._summarize_tool_results(results)
+        return (
+            "I looked this up but could not finish a full answer. "
+            f"Here is what the tools returned:\n{summary}"
+        )

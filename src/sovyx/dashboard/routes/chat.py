@@ -16,14 +16,54 @@ from starlette.status import HTTP_503_SERVICE_UNAVAILABLE
 from sovyx.dashboard.routes._deps import verify_token
 from sovyx.observability.logging import get_logger
 from sovyx.observability.saga import async_saga_scope, trace_saga
-from sovyx.observability.tasks import spawn
+from sovyx.observability.tasks import mark_consumed, spawn
 
 if TYPE_CHECKING:
+    from sovyx.bridge.sessions import ConversationTracker
     from sovyx.cognitive.act import ActionResult
+    from sovyx.engine.types import ConversationId
 
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api", dependencies=[Depends(verify_token)])
+
+
+async def _persist_stream_turns(
+    conversation_tracker: ConversationTracker,
+    conv_id: ConversationId,
+    user_text: str,
+    result: ActionResult,
+) -> tuple[str, list[str]]:
+    """Persist user + assistant turns for a completed stream.
+
+    Runs inside the spawned cognitive task so client disconnect
+    (which cancels the SSE generator) cannot skip DB writes.
+    Returns ``(response_text, persist_tags)`` for the ``done`` event.
+    """
+    await conversation_tracker.add_turn(conv_id, "user", user_text)
+    response_text = result.response_text or ""
+    if result.filtered:
+        response_text = "I can't respond to that request."
+
+    persist_tags: list[str] = []
+    if result.tool_calls_made:
+        persist_tags = sorted(
+            {
+                tc.function_name.split(".", 1)[0]
+                for tc in result.tool_calls_made
+                if tc.function_name
+            }
+        )
+    persist_tags.append("brain")
+
+    if response_text:
+        await conversation_tracker.add_turn(
+            conv_id,
+            "assistant",
+            response_text,
+            metadata={"tags": persist_tags},
+        )
+    return response_text, persist_tags
 
 
 class ChatResponse(BaseModel):
@@ -150,10 +190,15 @@ async def chat_stream(request: Request) -> StreamingResponse:
     """SSE streaming chat — tokens arrive as they are generated.
 
     Same request body as /api/chat. Returns text/event-stream with:
-      event: phase   — cognitive phase transitions
-      event: token   — individual text tokens
-      event: done    — final metadata (response, conversation_id, tags, cost)
-      event: error   — error message
+      event: conversation — conversation_id as soon as the row exists
+      event: phase        — cognitive phase transitions
+      event: token        — individual text tokens
+      event: done         — final metadata (response, conversation_id, tags, cost)
+      event: error        — error message
+
+    Conversation turns are persisted inside the spawned cognitive task,
+    not in this generator. Client disconnect cancels the SSE generator
+    but must not skip ``add_turn`` once the loop has finished.
     """
     try:
         body = await request.json()
@@ -226,6 +271,13 @@ async def chat_stream(request: Request) -> StreamingResponse:
                         ChannelType.DASHBOARD,
                     )
 
+                # Emit id before any cognitive work so a client that
+                # navigates away can still reload this conversation.
+                yield (
+                    "event: conversation\n"
+                    f"data: {json.dumps({'conversation_id': str(conv_id)})}\n\n"
+                )
+
                 stripped = message_text.strip()
                 msg_id = generate_id()
                 perception = Perception(
@@ -246,21 +298,12 @@ async def chat_stream(request: Request) -> StreamingResponse:
 
                 content_parts: list[str] = []
                 start_time = datetime.now(UTC)
+                # Filled by run_loop after persist; used for the done event.
+                persisted_response = ""
+                persisted_tags: list[str] = ["brain"]
 
-                async def on_token(text: str) -> None:
-                    content_parts.append(text)
-
-                async def on_phase(phase: str, detail: str) -> None:
-                    pass  # Collected below via wrapper
-
-                phase_events: list[tuple[str, str]] = []
-
-                async def phase_callback(phase: str, detail: str) -> None:
-                    phase_events.append((phase, detail))
-
-                # We need to yield phase events AND token events interleaved.
-                # Strategy: run streaming in a background task, collect events
-                # in queues, yield from the main generator.
+                # Strategy: run streaming in a background task, collect
+                # events in a queue, yield from the main generator.
                 event_queue: asyncio.Queue[tuple[str, str]] = asyncio.Queue()
 
                 async def token_callback(text: str) -> None:
@@ -273,13 +316,25 @@ async def chat_stream(request: Request) -> StreamingResponse:
                     )
 
                 async def run_loop() -> ActionResult:
-                    return await cogloop.process_request_streaming(  # type: ignore[no-any-return]
+                    nonlocal persisted_response, persisted_tags
+                    result = await cogloop.process_request_streaming(
                         cog_request,
                         on_text_chunk=token_callback,
                         on_phase=phase_cb,
                     )
+                    persisted_response, persisted_tags = await _persist_stream_turns(
+                        conversation_tracker,
+                        conv_id,
+                        stripped,
+                        result,
+                    )
+                    get_counters().record_message()
+                    return result  # type: ignore[no-any-return]
 
                 task = spawn(run_loop(), name="dashboard-chat-stream")
+                # Disconnect orphans the await below; mark consumed so
+                # the orphan watcher does not WARN on the expected path.
+                task.add_done_callback(mark_consumed)
 
                 # Drain the event queue until the task completes
                 while not task.done():
@@ -298,34 +353,9 @@ async def chat_stream(request: Request) -> StreamingResponse:
                     yield f"event: {evt_type}\ndata: {evt_data}\n\n"
 
                 result = await task
+                response_text = persisted_response
+                persist_tags = persisted_tags
 
-                # Record turns
-                await conversation_tracker.add_turn(conv_id, "user", stripped)
-                response_text = result.response_text or ""
-
-                if result.filtered:
-                    response_text = "I can't respond to that request."
-
-                persist_tags: list[str] = []
-                if result.tool_calls_made:
-                    persist_tags = sorted(
-                        {
-                            tc.function_name.split(".", 1)[0]
-                            for tc in result.tool_calls_made
-                            if tc.function_name
-                        }
-                    )
-                persist_tags.append("brain")
-
-                if response_text:
-                    await conversation_tracker.add_turn(
-                        conv_id,
-                        "assistant",
-                        response_text,
-                        metadata={"tags": persist_tags},
-                    )
-
-                get_counters().record_message()
                 elapsed = int((datetime.now(UTC) - start_time).total_seconds() * 1000)
 
                 llm_meta: dict[str, object] = {}

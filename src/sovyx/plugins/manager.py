@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import time
 import typing
 
@@ -137,15 +138,34 @@ def _clamp_preview(value: object, *, max_bytes: int = _INVOKE_PREVIEW_MAX_BYTES)
     UTF-8 boundary; a Unicode replacement character is never emitted.
     """
     if isinstance(value, (dict, list, tuple)):
-        import json as _json
-
-        rendered = _json.dumps(value, separators=(",", ":"), ensure_ascii=False, default=str)
+        rendered = json.dumps(value, separators=(",", ":"), ensure_ascii=False, default=str)
     else:
         rendered = str(value)
     data = rendered.encode("utf-8", errors="replace")
     if len(data) <= max_bytes:
         return rendered
     return data[:max_bytes].decode("utf-8", errors="ignore") + "…"
+
+
+def _tool_output_succeeded(output: object) -> bool:
+    """Return False only for JSON payloads with an explicit ``ok: false``.
+
+    Handlers that return ``{"ok": false, ...}`` finished without raising,
+    but the result is a reported failure for the model (✗ checkmark). Soft
+    payload failures do not count toward consecutive auto-disable. Non-JSON
+    strings and JSON without an ``ok`` key stay successes.
+    """
+    text = output if isinstance(output, str) else str(output)
+    stripped = text.lstrip()
+    if not stripped or stripped[0] not in "{[":
+        return True
+    try:
+        data = json.loads(text)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return True
+    if not isinstance(data, dict) or "ok" not in data:
+        return True
+    return data["ok"] is True
 
 
 # Public re-exports — keep backward-compatible imports working.
@@ -699,14 +719,18 @@ class PluginManager:
                     handler(**arguments),
                     timeout=timeout,
                 )
-            success = True
+            # Handler returned: soft {"ok": false} is still a healthy
+            # plugin run (do not auto-disable), but ToolResult.success
+            # must be False so the model sees ✗ rather than ✓.
             self._record_success(plugin_name)
-            result_preview = _clamp_preview(result)
+            result_str = str(result)
+            success = _tool_output_succeeded(result)
+            result_preview = _clamp_preview(result_str)
             return _ToolResult(
                 call_id="",
                 name=tool_name,
-                output=str(result),
-                success=True,
+                output=result_str,
+                success=success,
             )
         except TimeoutError:
             error_msg = f"Plugin timed out after {timeout}s"

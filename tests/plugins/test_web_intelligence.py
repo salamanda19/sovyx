@@ -720,14 +720,18 @@ class TestExtractContent:
 class TestFetchTool:
     """Tests for fetch tool."""
 
+    @staticmethod
+    def _html_fetch(html: str):
+        return AsyncMock(return_value=("html", html, "text/html"))
+
     @pytest.mark.anyio()
     async def test_basic_fetch(self) -> None:
         p = WebIntelligencePlugin()
         with patch.object(
             _web_mod,
-            "_fetch_html",
+            "_fetch_url",
             new_callable=AsyncMock,
-            return_value=_SAMPLE_HTML,
+            return_value=("html", _SAMPLE_HTML, "text/html"),
         ):
             data = _parse(await p.fetch("https://example.com/article"))
         assert data["ok"] is True
@@ -740,14 +744,19 @@ class TestFetchTool:
         long_html = "<html><body><p>" + "x" * 5000 + "</p></body></html>"
         with patch.object(
             _web_mod,
-            "_fetch_html",
+            "_fetch_url",
             new_callable=AsyncMock,
-            return_value=long_html,
+            return_value=("html", long_html, "text/html"),
         ):
             data = _parse(await p.fetch("https://example.com", max_chars=100))
         assert data["ok"] is True
         assert data["truncated"] is True
-        assert len(str(data["text"])) <= 200  # 100 + "..."
+        text = str(data["text"])
+        assert text.startswith(_web_mod._TRUNCATION_NOTICE)
+        body = text[len(_web_mod._TRUNCATION_NOTICE) :]
+        assert body.endswith("...")
+        assert len(body) <= 103  # 100 + "..."
+        assert "truncated — start of page only" in str(data["message"])
 
     @pytest.mark.anyio()
     async def test_invalid_url(self) -> None:
@@ -773,7 +782,7 @@ class TestFetchTool:
         p = WebIntelligencePlugin()
         with patch.object(
             _web_mod,
-            "_fetch_html",
+            "_fetch_url",
             new_callable=AsyncMock,
             return_value=None,
         ):
@@ -784,12 +793,12 @@ class TestFetchTool:
     async def test_fetch_timeout(self) -> None:
         p = WebIntelligencePlugin()
 
-        async def slow_fetch(_url: str) -> str | None:
+        async def slow_fetch(_url: str):
             await asyncio.sleep(0.5)
-            return "<html></html>"
+            return ("html", "<html></html>", "text/html")
 
         with (
-            patch.object(_web_mod, "_fetch_html", side_effect=slow_fetch),
+            patch.object(_web_mod, "_fetch_url", side_effect=slow_fetch),
             patch.object(_web_mod, "_FETCH_TIMEOUT", 0.05),
         ):
             data = _parse(await p.fetch("https://example.com"))
@@ -801,15 +810,70 @@ class TestFetchTool:
         p = WebIntelligencePlugin()
         with patch.object(
             _web_mod,
-            "_fetch_html",
+            "_fetch_url",
             new_callable=AsyncMock,
-            return_value=_SAMPLE_HTML,
+            return_value=("html", _SAMPLE_HTML, "text/html"),
         ):
             data = _parse(await p.fetch("https://example.com/article"))
         assert "title" in data
         assert "author" in data
         assert "language" in data
         assert "char_count" in data
+
+    @pytest.mark.anyio()
+    async def test_plain_text_fetch(self) -> None:
+        p = WebIntelligencePlugin()
+        with patch.object(
+            _web_mod,
+            "_fetch_url",
+            new_callable=AsyncMock,
+            return_value=("text", "plain forecast body", "text/plain"),
+        ):
+            data = _parse(await p.fetch("https://example.com/forecast.txt"))
+        assert data["ok"] is True
+        assert data["text"] == "plain forecast body"
+
+    @pytest.mark.anyio()
+    async def test_json_api_rejected(self) -> None:
+        p = WebIntelligencePlugin()
+        with patch.object(
+            _web_mod,
+            "_fetch_url",
+            new_callable=AsyncMock,
+            return_value=("api", '{"temp": 15}', "application/json"),
+        ):
+            data = _parse(await p.fetch("https://api.open-meteo.com/v1/forecast"))
+        assert data["ok"] is False
+        assert "search snippets" in str(data["message"]).lower()
+
+
+class TestClassifyContentType:
+    """Content-Type + body sniff for fetch kind."""
+
+    def test_explicit_html(self) -> None:
+        assert _web_mod._classify_content_type("text/html; charset=utf-8") == "html"
+
+    def test_explicit_text(self) -> None:
+        assert _web_mod._classify_content_type("text/plain") == "text"
+
+    def test_explicit_json_is_api(self) -> None:
+        assert _web_mod._classify_content_type("application/json", '{"a":1}') == "api"
+
+    def test_empty_header_sniffs_html(self) -> None:
+        assert (
+            _web_mod._classify_content_type("", "<!DOCTYPE html><html><body>Hi</body></html>")
+            == "html"
+        )
+
+    def test_empty_header_sniffs_head_or_div_as_html(self) -> None:
+        assert _web_mod._classify_content_type("", "<head><title>X</title></head>") == "html"
+        assert _web_mod._classify_content_type("", "<div class='main'>Hi</div>") == "html"
+
+    def test_octet_stream_sniffs_json_as_api(self) -> None:
+        assert _web_mod._classify_content_type("application/octet-stream", '{"temp":15}') == "api"
+
+    def test_empty_header_sniffs_plain_text(self) -> None:
+        assert _web_mod._classify_content_type("", "Kagoshima: ⛅ +15°C") == "text"
 
 
 # ── Query Intent Classification (TASK-499) ──
@@ -1106,9 +1170,9 @@ class TestCredibilityInSearchResults:
         html = "<html><body><p>Content here.</p></body></html>"
         with patch.object(
             _web_mod,
-            "_fetch_html",
+            "_fetch_url",
             new_callable=AsyncMock,
-            return_value=html,
+            return_value=("html", html, "text/html"),
         ):
             data = _parse(await p.fetch("https://reuters.com/article"))
         assert data["ok"] is True
@@ -1717,235 +1781,6 @@ class TestSearchCacheIntegration:
         assert data["ok"] is True
 
 
-# ── Quick Lookup (TASK-504) ──
-
-
-class TestLookupModeDetection:
-    """Tests for auto mode detection."""
-
-    def test_price_bitcoin(self) -> None:
-        assert WebIntelligencePlugin._detect_lookup_mode("bitcoin price") == "price"
-
-    def test_price_eth(self) -> None:
-        assert WebIntelligencePlugin._detect_lookup_mode("eth value") == "price"
-
-    def test_price_stock(self) -> None:
-        assert WebIntelligencePlugin._detect_lookup_mode("NASDAQ stock") == "price"
-
-    def test_convert_to(self) -> None:
-        assert WebIntelligencePlugin._detect_lookup_mode("100 USD to BRL") == "convert"
-
-    def test_convert_para(self) -> None:
-        assert WebIntelligencePlugin._detect_lookup_mode("100 dólares para reais") == "convert"
-
-    def test_define_what_is(self) -> None:
-        assert WebIntelligencePlugin._detect_lookup_mode("what is kubernetes") == "define"
-
-    def test_define_o_que(self) -> None:
-        assert WebIntelligencePlugin._detect_lookup_mode("o que é blockchain") == "define"
-
-    def test_default_define(self) -> None:
-        assert WebIntelligencePlugin._detect_lookup_mode("Python programming") == "define"
-
-
-class TestLookupTool:
-    """Tests for lookup tool."""
-
-    @pytest.mark.anyio()
-    async def test_basic_lookup(self) -> None:
-        p = WebIntelligencePlugin()
-        p._backend.search_text = _mock_ddgs_text(_SAMPLE_WEB_RESULTS)  # type: ignore[assignment]
-        data = _parse(await p.lookup("what is Python"))
-        assert data["ok"] is True
-        assert data["action"] == "lookup"
-        assert data["mode"] == "define"
-        assert "answer" in data
-        assert "source" in data
-        assert "url" in data
-
-    @pytest.mark.anyio()
-    async def test_price_lookup(self) -> None:
-        p = WebIntelligencePlugin()
-        p._backend.search_text = _mock_ddgs_text(_SAMPLE_WEB_RESULTS)  # type: ignore[assignment]
-        data = _parse(await p.lookup("bitcoin price"))
-        assert data["ok"] is True
-        assert data["mode"] == "price"
-
-    @pytest.mark.anyio()
-    async def test_explicit_mode(self) -> None:
-        p = WebIntelligencePlugin()
-        p._backend.search_text = _mock_ddgs_text(_SAMPLE_WEB_RESULTS)  # type: ignore[assignment]
-        data = _parse(await p.lookup("Python", mode="define"))
-        assert data["ok"] is True
-        assert data["mode"] == "define"
-
-    @pytest.mark.anyio()
-    async def test_lookup_cached(self) -> None:
-        p = WebIntelligencePlugin()
-        p._backend.search_text = _mock_ddgs_text(_SAMPLE_WEB_RESULTS)  # type: ignore[assignment]
-        await p.lookup("test query")
-        # Second call — should hit cache
-        call_count = 0
-
-        async def counting(*_a: object, **_kw: object) -> list[SearchResult]:
-            nonlocal call_count
-            call_count += 1
-            return []
-
-        p._backend.search_text = counting  # type: ignore[assignment]
-        data = _parse(await p.lookup("test query"))
-        assert data["ok"] is True
-        assert call_count == 0
-
-    @pytest.mark.anyio()
-    async def test_lookup_no_results(self) -> None:
-        p = WebIntelligencePlugin()
-        p._backend.search_text = _mock_ddgs_text([])  # type: ignore[assignment]
-        data = _parse(await p.lookup("xyznonexistent"))
-        assert data["ok"] is False
-
-    @pytest.mark.anyio()
-    async def test_lookup_empty_query(self) -> None:
-        p = WebIntelligencePlugin()
-        data = _parse(await p.lookup(""))
-        assert data["ok"] is False
-
-    @pytest.mark.anyio()
-    async def test_credibility_in_lookup(self) -> None:
-        p = WebIntelligencePlugin()
-        p._backend.search_text = _mock_ddgs_text(_SAMPLE_WEB_RESULTS)  # type: ignore[assignment]
-        data = _parse(await p.lookup("test"))
-        assert "credibility" in data
-        assert "score" in data["credibility"]
-
-    @pytest.mark.anyio()
-    async def test_supporting_snippets(self) -> None:
-        p = WebIntelligencePlugin()
-        many_results = [
-            {"title": f"R{i}", "url": f"https://site{i}.com/p", "snippet": f"Snippet {i}"}
-            for i in range(3)
-        ]
-        p._backend.search_text = _mock_ddgs_text(many_results)  # type: ignore[assignment]
-        data = _parse(await p.lookup("test"))
-        assert data["ok"] is True
-        assert len(data["supporting_snippets"]) >= 1
-
-
-# ── Weather Backward Compat (TASK-505) ──
-
-from sovyx.plugins.official.web_intelligence import _extract_city
-
-
-class TestExtractCity:
-    """Tests for city extraction from weather queries."""
-
-    def test_simple(self) -> None:
-        assert _extract_city("weather in São Paulo") == "São Paulo"
-
-    def test_pt_br(self) -> None:
-        assert _extract_city("clima em Sorocaba") == "Sorocaba"
-
-    def test_forecast(self) -> None:
-        result = _extract_city("forecast Berlin")
-        assert "Berlin" in result
-
-    def test_rain(self) -> None:
-        result = _extract_city("will it rain Tokyo")
-        assert "Tokyo" in result
-
-    def test_temperature(self) -> None:
-        result = _extract_city("temperature New York")
-        assert "New" in result and "York" in result
-
-    def test_empty_strips_all(self) -> None:
-        result = _extract_city("weather forecast")
-        assert result != ""
-
-
-class TestWeatherMode:
-    """Tests for weather mode in lookup."""
-
-    def test_auto_detects_weather(self) -> None:
-        assert WebIntelligencePlugin._detect_lookup_mode("weather in Berlin") == "weather"
-
-    def test_auto_detects_temperatura(self) -> None:
-        assert WebIntelligencePlugin._detect_lookup_mode("temperatura São Paulo") == "weather"
-
-    def test_auto_detects_chuva(self) -> None:
-        assert WebIntelligencePlugin._detect_lookup_mode("vai chover hoje") == "weather"
-
-    def test_auto_detects_forecast(self) -> None:
-        assert WebIntelligencePlugin._detect_lookup_mode("forecast London") == "weather"
-
-    @pytest.mark.anyio()
-    async def test_weather_lookup_returns_structured(self) -> None:
-        """Weather lookup returns structured data."""
-        p = WebIntelligencePlugin()
-
-        async def mock_weather(_query: str) -> str:
-            return json.dumps(
-                {
-                    "ok": True,
-                    "action": "lookup",
-                    "mode": "weather",
-                    "city": "Berlin",
-                    "answer": "Clear sky, 20°C",
-                    "source": "Open-Meteo",
-                }
-            )
-
-        p._weather_lookup = mock_weather  # type: ignore[assignment]
-        data = _parse(await p.lookup("weather Berlin"))
-        assert data["ok"] is True
-        assert data["mode"] == "weather"
-
-    @pytest.mark.anyio()
-    async def test_weather_explicit_mode(self) -> None:
-        p = WebIntelligencePlugin()
-
-        async def mock_weather(_query: str) -> str:
-            return json.dumps(
-                {
-                    "ok": True,
-                    "action": "lookup",
-                    "mode": "weather",
-                    "answer": "Cloudy, 15°C",
-                }
-            )
-
-        p._weather_lookup = mock_weather  # type: ignore[assignment]
-        data = _parse(await p.lookup("Berlin", mode="weather"))
-        assert data["ok"] is True
-
-    @pytest.mark.anyio()
-    async def test_weather_fallback_to_search(self) -> None:
-        """When Open-Meteo import fails, falls back to web search."""
-        p = WebIntelligencePlugin()
-        p._backend.search_text = _mock_ddgs_text(_SAMPLE_WEB_RESULTS)  # type: ignore[assignment]
-
-        async def failing_weather(_query: str) -> str:
-            # Simulate import failure fallback — search via web
-            if not p._rate_limiter.check():
-                return json.dumps({"ok": False, "message": "rate limit"})
-            results = await p._backend.search_text(f"{_query} weather", 3)
-            if not results:
-                return json.dumps({"ok": False, "message": "no results"})
-            r = results[0]
-            return json.dumps(
-                {
-                    "ok": True,
-                    "action": "lookup",
-                    "mode": "weather",
-                    "answer": r.snippet,
-                    "source": "web search",
-                }
-            )
-
-        p._weather_lookup = failing_weather  # type: ignore[assignment]
-        data = _parse(await p.lookup("Berlin", mode="weather"))
-        assert data["ok"] is True
-
-
 # ── Safety & Input Validation (TASK-506) ──
 
 from sovyx.plugins.official.web_intelligence import _sanitize_query
@@ -2100,9 +1935,9 @@ class TestOutputContract:
         html = "<html><body><p>Test.</p></body></html>"
         with patch.object(
             _web_mod,
-            "_fetch_html",
+            "_fetch_url",
             new_callable=AsyncMock,
-            return_value=html,
+            return_value=("html", html, "text/html"),
         ):
             data = _parse(await p.fetch("https://example.com"))
         assert "ok" in data
@@ -2122,16 +1957,6 @@ class TestOutputContract:
             return_value=None,
         ):
             data = _parse(await p.research("test"))
-        assert "ok" in data
-        assert "action" in data
-        assert "result" in data
-        assert "message" in data
-
-    @pytest.mark.anyio()
-    async def test_lookup_contract(self) -> None:
-        p = WebIntelligencePlugin()
-        p._backend.search_text = _mock_ddgs_text(_SAMPLE_WEB_RESULTS)  # type: ignore[assignment]
-        data = _parse(await p.lookup("what is Python"))
         assert "ok" in data
         assert "action" in data
         assert "result" in data
@@ -2166,10 +1991,9 @@ class TestMessageConstants:
             "_MSG_SEARCH_TIMEOUT",
             "_MSG_FETCH_TIMEOUT",
             "_MSG_RESEARCH_TIMEOUT",
-            "_MSG_LOOKUP_TIMEOUT",
             "_MSG_EMPTY_NAME",
             "_MSG_EMPTY_CONTENT",
-            "_MSG_WEATHER_ERROR",
+            "_MSG_FETCH_NOT_PAGE",
             "_MSG_RATE_LIMIT",
         ]
         for name in expected:

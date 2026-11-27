@@ -37,12 +37,18 @@ vi.mock("@/lib/api", () => {
 });
 
 import { api } from "@/lib/api";
+import { abortActiveChat } from "@/lib/chat-session";
 
 const mockApi = api as unknown as { post: ReturnType<typeof vi.fn> };
 
 beforeEach(() => {
   vi.clearAllMocks();
+  abortActiveChat();
   useDashboardStore.getState().clearChat();
+});
+
+afterEach(() => {
+  abortActiveChat();
 });
 
 describe("ChatPage", () => {

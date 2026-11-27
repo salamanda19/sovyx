@@ -746,7 +746,7 @@ Inbound message
 | `home_assistant` | 8 | NETWORK_LOCAL | 4 HA domains: light, switch, cover, climate |
 | `knowledge` | 5 | BRAIN_READ + BRAIN_WRITE | Operator-editable knowledge base |
 | `weather` (example — not entry-point registered) | 3 | none (sandbox-via-allowlist) | Open-Meteo current conditions + forecast |
-| `web_intelligence` | 6 | NETWORK_INTERNET + BRAIN_READ + BRAIN_WRITE | Search + fetch + extract |
+| `web_intelligence` | 5 | NETWORK_INTERNET + BRAIN_READ + BRAIN_WRITE | Search + fetch + extract + memory |
 
 ### 5-layer sandbox (verified at `src/sovyx/plugins/`)
 

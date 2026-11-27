@@ -643,10 +643,13 @@ class TestReActLoop:
             _perception("hi"),
         )
 
-        # Should have been called max_depth times for re-invocations
-        assert mock_router.generate.call_count == 2
+        # max_depth re-invocations + one tools-off completion turn
+        assert mock_router.generate.call_count == 3
+        assert mock_router.generate.call_args_list[-1].kwargs.get("tools") is None
         # 1 initial + 1 from first re-invoke (second re-invoke's calls not executed)
         assert len(result.tool_calls_made) == 2
+        assert result.degraded is True
+        assert "could not finish a full answer" in result.response_text
 
     async def test_reinvoke_failure_fallback(self) -> None:
         """LLM re-invocation failure returns tool results summary."""
@@ -721,12 +724,12 @@ class TestReActLoop:
         Regression test: OpenAI rejects tool messages without matching tool_calls
         in the preceding assistant message (400 error).
         """
-        captured_messages: list[dict[str, object]] = []
+        captured_calls: list[list[dict[str, object]]] = []
         mock_router = AsyncMock()
 
         async def capture_generate(messages: object, **_kwargs: object) -> LLMResponse:
             assert isinstance(messages, list)
-            captured_messages.extend(messages)
+            captured_calls.append(list(messages))
             return _response("Done!", finish_reason="stop")
 
         mock_router.generate = AsyncMock(side_effect=capture_generate)
@@ -755,8 +758,10 @@ class TestReActLoop:
             _perception("what is 1+2"),
         )
 
-        # Find assistant message with tool_calls
-        assistant_msgs = [m for m in captured_messages if m.get("role") == "assistant"]
+        # Protocol shape is on the tool-using reinvoke, not the later tools-off turn.
+        assert len(captured_calls) == 2
+        first = captured_calls[0]
+        assistant_msgs = [m for m in first if m.get("role") == "assistant"]
         assert len(assistant_msgs) == 1
         assert "tool_calls" in assistant_msgs[0], "Assistant message must include tool_calls"
         tool_calls_field = assistant_msgs[0]["tool_calls"]
@@ -770,7 +775,7 @@ class TestReActLoop:
         assert isinstance(tool_calls_field[0]["function"]["arguments"], str)
 
         # Find tool result message
-        tool_msgs = [m for m in captured_messages if m.get("role") == "tool"]
+        tool_msgs = [m for m in first if m.get("role") == "tool"]
         assert len(tool_msgs) == 1
         assert tool_msgs[0].get("tool_call_id") == "tc1", "Tool result must have tool_call_id"
 
@@ -800,11 +805,180 @@ class TestReActLoop:
         assert "Sorry" in result.response_text
 
 
+class TestReActUnfinishedReply:
+    """Tools-off completion and unfinished-reply detection."""
+
+    async def test_unfinished_retry_reply_triggers_completion(self) -> None:
+        """Retry chatter after tools gets a tools-off rewrite."""
+        mock_router = AsyncMock()
+        mock_router.generate = AsyncMock(
+            side_effect=[
+                _response(
+                    content="The multi-city call failed — let me try single-city API calls.",
+                    finish_reason="stop",
+                ),
+                _response(
+                    content="Fukuoka will be mild next week.",
+                    finish_reason="stop",
+                ),
+            ],
+        )
+
+        mock_mgr = AsyncMock()
+        mock_mgr.plugin_count = 1
+        mock_mgr.get_tool_definitions = MagicMock(return_value=[])
+        mock_mgr.execute = AsyncMock(
+            return_value=MagicMock(
+                name="web-intelligence.search",
+                output="Found 5 results",
+                success=True,
+            ),
+        )
+
+        executor = ToolExecutor(plugin_manager=mock_mgr)
+        act = ActPhase(tool_executor=executor, llm_router=mock_router)
+
+        initial_response = _response(
+            content="Checking.",
+            finish_reason="tool_use",
+            tool_calls=[
+                ToolCall(
+                    id="tc1",
+                    function_name="web-intelligence.search",
+                    arguments={"query": "Kyushu weather"},
+                ),
+            ],
+        )
+
+        result = await act.process(
+            initial_response,
+            [{"role": "user", "content": "Kyushu weather"}],
+            _perception("Kyushu weather"),
+        )
+
+        assert mock_router.generate.call_count == 2
+        assert mock_router.generate.call_args_list[-1].kwargs.get("tools") is None
+        assert result.response_text == "Fukuoka will be mild next week."
+        assert result.degraded is False
+
+    async def test_empty_completion_uses_degraded_note(self) -> None:
+        """Empty tools-off completion falls back to a fixed note."""
+        mock_router = AsyncMock()
+        mock_router.generate = AsyncMock(
+            side_effect=[
+                _response(content="", finish_reason="stop"),
+                _response(content="", finish_reason="stop"),
+            ],
+        )
+
+        mock_mgr = AsyncMock()
+        mock_mgr.plugin_count = 1
+        mock_mgr.get_tool_definitions = MagicMock(return_value=[])
+        mock_mgr.execute = AsyncMock(
+            return_value=MagicMock(
+                name="web-intelligence.search",
+                output="snippet about Fukuoka",
+                success=True,
+            ),
+        )
+
+        executor = ToolExecutor(plugin_manager=mock_mgr)
+        act = ActPhase(tool_executor=executor, llm_router=mock_router)
+
+        initial_response = _response(
+            content="",
+            finish_reason="tool_use",
+            tool_calls=[
+                ToolCall(
+                    id="tc1",
+                    function_name="web-intelligence.search",
+                    arguments={"query": "weather"},
+                ),
+            ],
+        )
+
+        result = await act.process(
+            initial_response,
+            [{"role": "user", "content": "weather"}],
+            _perception("weather"),
+        )
+
+        assert result.degraded is True
+        assert "could not finish a full answer" in result.response_text
+        assert "snippet about Fukuoka" in result.response_text
+
+    async def test_retry_plan_in_any_language_is_rewritten(self) -> None:
+        """A non-English 'I'll try again' draft is not kept via keyword match."""
+        draft = "多城查詢失敗，讓我再試單城。"
+        answer = "福岡下周多雲，大約 15 度。"
+        seen: list[str] = []
+        mock_router = AsyncMock()
+
+        async def generate(messages: object, **_kwargs: object) -> LLMResponse:
+            assert isinstance(messages, list)
+            last = messages[-1]
+            if isinstance(last, dict) and last.get("role") == "user":
+                seen.append(str(last.get("content")))
+                return _response(answer, finish_reason="stop")
+            return _response(draft, finish_reason="stop")
+
+        mock_router.generate = AsyncMock(side_effect=generate)
+
+        mock_mgr = AsyncMock()
+        mock_mgr.plugin_count = 1
+        mock_mgr.get_tool_definitions = MagicMock(return_value=[])
+        mock_mgr.execute = AsyncMock(
+            return_value=MagicMock(
+                name="web-intelligence.search",
+                output="Found 5 results",
+                success=True,
+            ),
+        )
+
+        executor = ToolExecutor(plugin_manager=mock_mgr)
+        act = ActPhase(tool_executor=executor, llm_router=mock_router)
+
+        result = await act.process(
+            _response(
+                content="查一下。",
+                finish_reason="tool_use",
+                tool_calls=[
+                    ToolCall(
+                        id="tc1",
+                        function_name="web-intelligence.search",
+                        arguments={"query": "九州 天氣"},
+                    ),
+                ],
+            ),
+            [{"role": "user", "content": "九州天氣"}],
+            _perception("九州天氣"),
+        )
+
+        assert result.response_text == answer
+        assert result.degraded is False
+        assert seen and draft in seen[0]
+        assert "not retrieved" in seen[0]
+        assert "does not exist" in seen[0]
+        assert mock_router.generate.call_args_list[-1].kwargs.get("tools") is None
+
+    def test_final_answer_instruction_requires_scope_coverage(self) -> None:
+        """Finish prompt forbids inventing missing scope as nonexistent."""
+        from sovyx.cognitive.act import _FINAL_ANSWER_INSTRUCTION
+
+        assert "not retrieved" in _FINAL_ANSWER_INSTRUCTION
+        assert "does not exist" in _FINAL_ANSWER_INSTRUCTION
+        assert "climate averages" in _FINAL_ANSWER_INSTRUCTION
+        assert "asked scope" in _FINAL_ANSWER_INSTRUCTION
+        # Must not keep any fluent draft unchanged without coverage check.
+        assert "already answers the user, return that answer unchanged" not in (
+            _FINAL_ANSWER_INSTRUCTION
+        )
+
+
 class TestSummarizeToolResults:
     """Tests for _summarize_tool_results."""
 
     def test_empty(self) -> None:
-
         result = ActPhase._summarize_tool_results([])
         assert "no results" in result.lower()
 
