@@ -12,6 +12,10 @@
 </p>
 
 <p align="center">
+  <a href="README.zh-TW.md">繁體中文</a>
+</p>
+
+<p align="center">
   <a href="https://github.com/sovyx-ai/sovyx/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/sovyx-ai/sovyx/ci.yml?branch=main&label=CI"></a>
   <a href="https://pypi.org/project/sovyx/"><img alt="PyPI" src="https://img.shields.io/pypi/v/sovyx.svg"></a>
   <a href="https://pypi.org/project/sovyx/"><img alt="Python" src="https://img.shields.io/pypi/pyversions/sovyx.svg"></a>
