@@ -4,7 +4,12 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { useDashboardStore } from "@/stores/dashboard";
-import { abortActiveChat, sendChatMessage } from "./chat-session";
+import {
+  abortActiveChat,
+  EMPTY_ASSISTANT_FALLBACK,
+  pickFinalAssistantText,
+  sendChatMessage,
+} from "./chat-session";
 
 vi.mock("@/lib/api", () => {
   class ApiError extends Error {
@@ -122,5 +127,59 @@ describe("sendChatMessage", () => {
     expect(state.chatMessages).toHaveLength(2);
     expect(state.chatMessages[1]?.content).toBe("Hi");
     expect(state.chatLoading).toBe(false);
+  });
+
+  it("uses streamed tokens when done.response is an empty string", async () => {
+    mockApiFetch.mockResolvedValueOnce(
+      sseResponse([
+        'event: token\ndata: {"text":"streamed body"}\n\n',
+        'event: done\ndata: {"response":"","conversation_id":"conv-empty","tags":["web-intelligence","brain"]}\n\n',
+      ]),
+    );
+
+    await sendChatMessage("weather again");
+
+    const assistant = useDashboardStore.getState().chatMessages[1];
+    expect(assistant?.content).toBe("streamed body");
+    expect(assistant?.tags).toEqual(["web-intelligence", "brain"]);
+  });
+
+  it("uses fixed note when done.response and stream are both empty", async () => {
+    mockApiFetch.mockResolvedValueOnce(
+      sseResponse([
+        'event: done\ndata: {"response":"","conversation_id":"conv-blank","tags":["brain"]}\n\n',
+      ]),
+    );
+
+    await sendChatMessage("blank turn");
+
+    const assistant = useDashboardStore.getState().chatMessages[1];
+    expect(assistant?.content).toBe(EMPTY_ASSISTANT_FALLBACK);
+  });
+
+  it("never paints tags/metrics with an empty assistant body", async () => {
+    mockApiFetch.mockResolvedValueOnce(
+      sseResponse([
+        'event: done\ndata: {"response":"","conversation_id":"conv-shell","tags":["web-intelligence","brain"],"model":"deepseek-chat","tokens_in":5707,"tokens_out":0,"latency_ms":18300,"provider":"deepseek"}\n\n',
+      ]),
+    );
+
+    await sendChatMessage("repeat weather");
+
+    const assistant = useDashboardStore.getState().chatMessages[1];
+    expect(assistant?.content.trim().length).toBeGreaterThan(0);
+    expect(assistant?.content).toBe(EMPTY_ASSISTANT_FALLBACK);
+    expect(assistant?.tags).toEqual(["web-intelligence", "brain"]);
+    expect(assistant?.model).toBe("deepseek-chat");
+    expect(assistant?.tokens_in).toBe(5707);
+    expect(assistant?.latency_ms).toBe(18300);
+  });
+});
+
+describe("pickFinalAssistantText", () => {
+  it("ignores empty-string response for nullish-style fallback", () => {
+    expect(pickFinalAssistantText("", "from stream")).toBe("from stream");
+    expect(pickFinalAssistantText("   ", "")).toBe(EMPTY_ASSISTANT_FALLBACK);
+    expect(pickFinalAssistantText("kept", "ignored")).toBe("kept");
   });
 });

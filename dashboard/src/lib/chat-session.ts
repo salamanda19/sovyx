@@ -12,8 +12,23 @@ import { ChatResponseSchema } from "@/types/schemas";
 import type { ChatMessage, ChatResponse } from "@/types/api";
 import { useDashboardStore } from "@/stores/dashboard";
 
+/** Keep in sync with backend ``_EMPTY_STREAM_REPLY`` in routes/chat.py. */
+export const EMPTY_ASSISTANT_FALLBACK =
+  "I finished this turn but the reply text was empty.";
+
 function localId(): string {
   return `local-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+/** Prefer non-empty ``done.response``, then streamed tokens, then a fixed note. */
+export function pickFinalAssistantText(
+  response: unknown,
+  accumulated: string,
+): string {
+  const fromDone = typeof response === "string" ? response : "";
+  if (fromDone.trim()) return fromDone;
+  if (accumulated.trim()) return accumulated;
+  return EMPTY_ASSISTANT_FALLBACK;
 }
 
 let activeAbort: AbortController | null = null;
@@ -144,7 +159,10 @@ export async function sendChatMessage(
     patch().setChatCogPhase(null);
     patch().setChatStreamingText("");
 
-    const finalResponse = String(doneData?.response ?? accumulated);
+    const finalResponse = pickFinalAssistantText(
+      doneData?.response,
+      accumulated,
+    );
     const finalConvId = String(
       doneData?.conversation_id ?? conversationId ?? "",
     );

@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ### Fixed
 
+- Dashboard chat no longer shows a blank assistant bubble when SSE `done.response` is an empty string: the UI prefers streamed tokens, then a fixed note; the stream persist path writes that same note instead of skipping the assistant turn.
+- Dashboard 聊天在 SSE `done.response` 為空字串時不再出現空白助手泡泡：介面優先用已串流文字，否則用固定說明；串流落盤路徑寫入同一句說明，不再略過 assistant 回合。
 - Dashboard SSE chat (`POST /api/chat/stream`) now persists conversation turns inside the spawned cognitive task and emits an early `conversation` event with the id. Leaving the Chat page mid-stream can cancel the SSE generator without skipping `add_turn`; returning to Chat reloads the conversation from the API when loading settles.
 - Dashboard SSE 聊天（`POST /api/chat/stream`）改在背景認知任務內寫入對話回合，並儘早送出帶 `conversation_id` 的 `conversation` 事件。中途離開 Chat 頁可能取消 SSE 產生器，但不會因此跳過 `add_turn`；回到 Chat 且載入結束後會從 API 重載該對話。
 - Tool replies no longer treat a partial lookup as proof that the missing part does not exist. After tools run, the tools-off turn may keep only what the tools retrieved for the asked scope; anything not retrieved is reported as not retrieved, and is not filled with general knowledge presented as the looked-up answer. A plugin JSON body with `ok: false` is a failed tool result (the model sees a failure mark) without counting toward plugin auto-disable. A truncated `fetch` leads with a notice that the text is only the start of the page.
