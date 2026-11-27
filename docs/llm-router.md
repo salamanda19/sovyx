@@ -97,15 +97,15 @@ Ten providers ship in-box. All implement the `LLMProvider` Protocol
 
 | Provider | Auth | Models | Notes |
 |---|---|---|---|
-| **Anthropic** | `ANTHROPIC_API_KEY` | Claude Sonnet 4, Haiku 3.5, Opus 4 | BYOK — preferred default when present |
-| **OpenAI** | `OPENAI_API_KEY` | GPT-4o, GPT-4o-mini, o1, o3-mini | BYOK |
-| **Google** | `GOOGLE_API_KEY` | Gemini 2.5 Pro, 2.0 Flash | BYOK |
-| **xAI** | `XGROK_API_KEY` | Grok-2, Grok-3 | BYOK |
-| **DeepSeek** | `DEEPSEEK_API_KEY` | deepseek-chat, deepseek-reasoner | BYOK |
-| **Mistral** | `MISTRAL_API_KEY` | mistral-large-latest, mistral-small-latest | BYOK |
-| **Together AI** | `TOGETHER_API_KEY` | Llama 3.1 70B, 8B | BYOK — open-source models |
-| **Groq** | `GROQ_API_KEY` | Llama 3.1 70B, Mixtral 8x7B | BYOK — fast inference |
-| **Fireworks AI** | `FIREWORKS_API_KEY` | Llama 3.1 70B, 8B | BYOK — fast inference |
+| **Anthropic** | `ANTHROPIC_API_KEY` | Claude Sonnet 5.5, Haiku 5.5, Opus 5.5 | BYOK — preferred default when present |
+| **OpenAI** | `OPENAI_API_KEY` | GPT-6.2 Sol, GPT-6 Luna, GPT-6.2 Astra | BYOK |
+| **Google** | `GOOGLE_API_KEY` | Gemini 4 Hydrogen, 3.5 Flash-Lite | BYOK |
+| **xAI** | `XGROK_API_KEY` | Grok 4.7, Grok 4.3 | BYOK |
+| **DeepSeek** | `DEEPSEEK_API_KEY` | deepseek-v4-pro, deepseek-flash | BYOK |
+| **Mistral** | `MISTRAL_API_KEY` | mistral-large-4, mistral-small-4 | BYOK |
+| **Together AI** | `TOGETHER_API_KEY` | Llama 3.3 70B, 3.1 8B | BYOK — open-source models |
+| **Groq** | `GROQ_API_KEY` | GPT-OSS 120B, GPT-OSS 20B | BYOK — fast inference |
+| **Fireworks AI** | `FIREWORKS_API_KEY` | Llama 3.3 70B, 3.1 8B | BYOK — fast inference |
 | **Ollama** | none | Any pulled model | Local, auto-detected on `http://localhost:11434` |
 
 ## Routing and Fallback
@@ -132,9 +132,9 @@ other providers. Equivalence groups are maintained symmetrically in
 
 | Tier | Equivalent across providers |
 |---|---|
-| Flagship | Anthropic Sonnet ↔ OpenAI GPT-4o ↔ Google Gemini Pro ↔ xAI Grok ↔ Mistral Large |
-| Fast | Anthropic Haiku ↔ OpenAI mini ↔ Google Flash ↔ DeepSeek Chat ↔ Mistral Small |
-| Reasoning | Anthropic Opus ↔ OpenAI o-series ↔ DeepSeek Reasoner |
+| Flagship | Anthropic Sonnet 5.5 ↔ OpenAI GPT-6.2 Sol ↔ Google Gemini 4 Hydrogen ↔ xAI Grok 4.7 ↔ Mistral Large 4 |
+| Fast | Anthropic Haiku 5.5 ↔ OpenAI Luna ↔ Google Flash-Lite ↔ DeepSeek Flash ↔ Mistral Small 4 |
+| Reasoning | Anthropic Opus 5.5 ↔ OpenAI Astra ↔ DeepSeek V4 Pro |
 
 Exact IDs are in `pricing.py` and rotate with provider releases.
 
@@ -167,20 +167,20 @@ Pricing is built in for the common models (per 1M tokens, input/output):
 
 | Model | Input | Output |
 |---|---|---|
-| `claude-sonnet-4-20250514` | 3.00 | 15.00 |
-| `claude-3-5-haiku-20241022` | 0.80 | 4.00 |
-| `claude-opus-4-20250514` | 15.00 | 75.00 |
-| `gpt-4o` | 2.50 | 10.00 |
-| `gpt-4o-mini` | 0.15 | 0.60 |
-| `o1` | 15.00 | 60.00 |
-| `gemini-2.0-flash` | 0.10 | 0.40 |
-| `gemini-2.5-pro-preview-03-25` | 1.25 | 10.00 |
-| `grok-2` | 2.00 | 10.00 |
-| `grok-3` | 3.00 | 15.00 |
-| `deepseek-chat` | 0.28 | 0.42 |
-| `deepseek-reasoner` | 0.28 | 0.42 |
-| `mistral-large-latest` | 2.00 | 6.00 |
-| `mistral-small-latest` | 0.10 | 0.30 |
+| `claude-sonnet-5-5` | 2.00 | 10.00 |
+| `claude-haiku-5-5` | 0.10 | 0.50 |
+| `claude-opus-5-5` | 4.00 | 20.00 |
+| `gpt-6.2-sol` | 2.00 | 10.00 |
+| `gpt-6-luna` | 0.10 | 0.50 |
+| `gpt-6.2-astra` | 8.00 | 40.00 |
+| `gemini-4-hydrogen` | 1.50 | 7.50 |
+| `gemini-3.5-flash-lite` | 0.30 | 2.50 |
+| `grok-4.7` | 2.00 | 6.00 |
+| `grok-4.3` | 1.25 | 2.50 |
+| `deepseek-v4-pro` | 1.32 | 3.96 |
+| `deepseek-flash` | 0.30 | 1.20 |
+| `mistral-large-4` | 2.00 | 6.00 |
+| `mistral-small-4` | 0.10 | 0.30 |
 
 See `src/sovyx/llm/pricing.py` for Together AI, Groq, and Fireworks rates.
 
@@ -194,8 +194,8 @@ Router settings live under `llm:` in `mind.yaml`. Minimal config:
 ```yaml
 llm:
   default_provider: anthropic
-  default_model: claude-sonnet-4-20250514
-  fast_model: claude-3-5-haiku-20241022
+  default_model: claude-sonnet-5-5
+  fast_model: claude-haiku-5-5
   local_model: llama3.2:1b
   temperature: 0.7
   streaming: true
@@ -208,16 +208,17 @@ the router auto-detects them from available API keys at start-up:
 
 | Present key | Resolves `default_model` to |
 |---|---|
-| `ANTHROPIC_API_KEY` | `claude-sonnet-4-20250514` |
-| `OPENAI_API_KEY` | `gpt-4o` |
-| `GOOGLE_API_KEY` | `gemini-2.5-pro-preview-03-25` |
-| `XGROK_API_KEY` | `grok-2` |
-| `DEEPSEEK_API_KEY` | `deepseek-chat` |
-| `MISTRAL_API_KEY` | `mistral-large-latest` |
-| `GROQ_API_KEY` | `llama-3.1-70b-versatile` |
+| `ANTHROPIC_API_KEY` | `claude-sonnet-5-5` |
+| `OPENAI_API_KEY` | `gpt-6.2-sol` |
+| `GOOGLE_API_KEY` | `gemini-4-hydrogen` |
+| `XGROK_API_KEY` | `grok-4.7` |
+| `DEEPSEEK_API_KEY` | `deepseek-v4-pro` |
+| `MISTRAL_API_KEY` | `mistral-large-4` |
+| `GROQ_API_KEY` | `openai/gpt-oss-120b` |
 
 Fast-tier fallback (`fast_model`) resolves the same way to
-`claude-3-5-haiku-20241022`, `gpt-4o-mini`, or `gemini-2.0-flash`.
+`claude-haiku-5-5`, `gpt-6-luna`, `gemini-3.5-flash-lite`, `grok-4.3`,
+`deepseek-flash`, `mistral-small-4`, or `openai/gpt-oss-20b`.
 
 ## Graceful Degradation
 
@@ -237,7 +238,7 @@ Every successful call emits a `ThinkCompleted` event:
 
 ```python
 ThinkCompleted(
-    model="claude-sonnet-4-20250514",
+    model="claude-sonnet-5-5",
     tokens_in=1247,
     tokens_out=312,
     cost_usd=0.00842,
@@ -265,7 +266,7 @@ To force a specific model for a call, pass `model=` to `router.generate(...)`:
 ```python
 response = await router.generate(
     messages=[{"role": "user", "content": "..."}],
-    model="claude-opus-4-20250514",
+    model="claude-opus-5-5",
     temperature=0.2,
     max_tokens=2048,
 )

@@ -8,9 +8,10 @@ _FIREWORKS_CONFIG = ProviderConfig(
     name="fireworks",
     api_url="https://api.fireworks.ai/inference/v1/chat/completions",
     api_key_env="FIREWORKS_API_KEY",
-    default_model="accounts/fireworks/models/llama-v3p1-70b-instruct",
+    default_model="accounts/fireworks/models/llama-v3p3-70b-instruct",
     supported_prefixes=("accounts/fireworks/",),
     context_windows={
+        "accounts/fireworks/models/llama-v3p3-70b-instruct": 131_072,
         "accounts/fireworks/models/llama-v3p1-70b-instruct": 131_072,
         "accounts/fireworks/models/llama-v3p1-8b-instruct": 131_072,
     },

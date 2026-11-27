@@ -111,13 +111,13 @@ _ENV_VAR_BY_KEY: Mapping[LLMProviderKey, str] = {
 # a model as decommissioned. Operator override via the onboarding flow or
 # direct ``mind.yaml`` edit always wins.
 _DEFAULT_MODEL_BY_KEY: Mapping[LLMProviderKey, str] = {
-    LLMProviderKey.ANTHROPIC: "claude-sonnet-4-6",
-    LLMProviderKey.OPENAI: "gpt-4o-mini",
-    LLMProviderKey.GOOGLE: "gemini-2.0-flash",
-    LLMProviderKey.XAI: "grok-2",
-    LLMProviderKey.DEEPSEEK: "deepseek-chat",
-    LLMProviderKey.MISTRAL: "mistral-large-latest",
-    LLMProviderKey.GROQ: "llama-3.3-70b-versatile",
+    LLMProviderKey.ANTHROPIC: "claude-sonnet-5-5",
+    LLMProviderKey.OPENAI: "gpt-6.2-sol",
+    LLMProviderKey.GOOGLE: "gemini-4-hydrogen",
+    LLMProviderKey.XAI: "grok-4.7",
+    LLMProviderKey.DEEPSEEK: "deepseek-v4-pro",
+    LLMProviderKey.MISTRAL: "mistral-large-4",
+    LLMProviderKey.GROQ: "openai/gpt-oss-120b",
     LLMProviderKey.TOGETHER: "meta-llama/Llama-3.3-70B-Instruct-Turbo",
     LLMProviderKey.FIREWORKS: "accounts/fireworks/models/llama-v3p3-70b-instruct",
     LLMProviderKey.OLLAMA: "",

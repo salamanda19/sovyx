@@ -75,6 +75,8 @@ class TestInit:
 
     def test_supports_gemini(self) -> None:
         provider = GoogleProvider(api_key="k")
+        assert provider.supports_model("gemini-4-hydrogen") is True
+        assert provider.supports_model("gemini-3.5-flash-lite") is True
         assert provider.supports_model("gemini-2.0-flash") is True
         assert provider.supports_model("gemini-2.5-pro-preview-03-25") is True
 
@@ -89,6 +91,8 @@ class TestInit:
 
     def test_context_window_specific_model(self) -> None:
         provider = GoogleProvider(api_key="k")
+        assert provider.get_context_window("gemini-4-hydrogen") == 1_048_576
+        assert provider.get_context_window("gemini-3.5-flash-lite") == 1_048_576
         assert provider.get_context_window("gemini-2.0-flash") == 1_048_576
 
     def test_context_window_unknown_model(self) -> None:

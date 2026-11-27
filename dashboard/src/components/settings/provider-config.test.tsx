@@ -47,7 +47,7 @@ function makeResponse(overrides: Record<string, unknown> = {}) {
         base_url: "http://localhost:11434",
       },
     ],
-    active: { provider: "openai", model: "gpt-4o", fast_model: "gpt-4o-mini" },
+    active: { provider: "openai", model: "gpt-6.2-sol", fast_model: "gpt-6-luna" },
     ...overrides,
   };
 }
@@ -186,8 +186,8 @@ describe("ProviderConfig", () => {
     await waitFor(() => {
       expect(screen.getByText(/Active/)).toBeInTheDocument();
     });
-    // Active line: "Active: OpenAI / gpt-4o"
-    expect(screen.getByText(/OpenAI \/ gpt-4o/)).toBeInTheDocument();
+    // Active line: "Active: OpenAI / gpt-6.2-sol"
+    expect(screen.getByText(/OpenAI \/ gpt-6\.2-sol/)).toBeInTheDocument();
   });
 
   it("disables not-configured cloud providers", async () => {

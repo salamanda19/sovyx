@@ -148,8 +148,8 @@ Per-mind router settings live under `llm:` in `mind.yaml` (`MindConfig.llm`):
 ```yaml
 llm:
   default_provider: anthropic              # "" for auto-detect from env keys
-  default_model: claude-sonnet-4-20250514  # "" for auto-detect
-  fast_model: claude-3-5-haiku-20241022    # "" for auto-detect
+  default_model: claude-sonnet-5-5  # "" for auto-detect
+  fast_model: claude-haiku-5-5      # "" for auto-detect
   local_model: llama3.2:1b                 # Ollama fallback
   temperature: 0.7
   streaming: true

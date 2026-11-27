@@ -1,7 +1,7 @@
 """Sovyx Google provider — Gemini API via httpx.
 
-Supports Gemini 2.0 Flash (default) and Gemini 2.5 Pro.
-Context window: 1M tokens for both models.
+Supports Gemini 4 Hydrogen (default flagship) and Gemini 3.5 Flash-Lite
+(fast). Context window: 1M tokens for current Gemini 3/4 models.
 
 Ref: SPE-007 §GoogleProvider, Pre-Compute V05-36.
 """
@@ -37,6 +37,9 @@ _API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 _FALLBACK_PRICING = PROVIDER_DEFAULT_PRICING["google"]
 
 _CONTEXT_WINDOWS: dict[str, int] = {
+    "gemini-4-hydrogen": 1_048_576,
+    "gemini-3.8-flash": 1_048_576,
+    "gemini-3.5-flash-lite": 1_048_576,
     "gemini-2.0-flash": 1_048_576,
     "gemini-2.5-flash-preview-04-17": 1_048_576,
     "gemini-2.5-pro-preview-03-25": 1_048_576,
@@ -85,7 +88,7 @@ class GoogleProvider:
     async def generate(
         self,
         messages: Sequence[dict[str, str]],
-        model: str = "gemini-2.0-flash",
+        model: str = "gemini-4-hydrogen",
         temperature: float = 0.7,
         max_tokens: int = 4096,
         tools: list[dict[str, Any]] | None = None,
@@ -232,7 +235,7 @@ class GoogleProvider:
     async def stream(
         self,
         messages: Sequence[dict[str, str]],
-        model: str = "gemini-2.0-flash",
+        model: str = "gemini-4-hydrogen",
         temperature: float = 0.7,
         max_tokens: int = 4096,
         tools: list[dict[str, Any]] | None = None,

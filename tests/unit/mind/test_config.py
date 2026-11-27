@@ -88,8 +88,8 @@ class TestLLMConfig:
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
         llm = LLMConfig()
-        assert llm.default_model == "claude-sonnet-4-20250514"
-        assert llm.fast_model == "claude-3-5-haiku-20241022"
+        assert llm.default_model == "claude-sonnet-5-5"
+        assert llm.fast_model == "claude-haiku-5-5"
         assert llm.default_provider == "anthropic"
 
     def test_defaults_openai_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -97,8 +97,8 @@ class TestLLMConfig:
         monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
         monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
         llm = LLMConfig()
-        assert llm.default_model == "gpt-4o"
-        assert llm.fast_model == "gpt-4o-mini"
+        assert llm.default_model == "gpt-6.2-sol"
+        assert llm.fast_model == "gpt-6-luna"
         assert llm.default_provider == "openai"
 
     def test_defaults_google_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -106,8 +106,8 @@ class TestLLMConfig:
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         monkeypatch.setenv("GOOGLE_API_KEY", "test-google")
         llm = LLMConfig()
-        assert llm.default_model == "gemini-2.5-pro-preview-03-25"
-        assert llm.fast_model == "gemini-2.0-flash"
+        assert llm.default_model == "gemini-4-hydrogen"
+        assert llm.fast_model == "gemini-3.5-flash-lite"
         assert llm.default_provider == "google"
 
     def test_explicit_model_preserved(self, monkeypatch: pytest.MonkeyPatch) -> None:

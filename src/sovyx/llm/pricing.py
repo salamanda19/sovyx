@@ -9,16 +9,16 @@ pattern of duplicating the same numbers in four files was responsible for
 silent drift (e.g., `router.py` was missing `gemini-2.5-flash-preview-04-17`
 while `providers/google.py` had it).
 
-Last validated: 2026-04-16
+Last validated: 2026-11-27
 Sources:
-    - https://platform.claude.com/docs/en/docs/about-claude/pricing
-    - https://openai.com/api/pricing/
-    - https://ai.google.dev/pricing
-    - https://docs.x.ai/docs/models
+    - https://platform.claude.com/docs/en/models/overview
+    - https://developers.openai.com/api/docs/models
+    - https://ai.google.dev/gemini-api/docs/pricing
+    - https://docs.x.ai/developers/models/grok-4.3
     - https://api-docs.deepseek.com/quick_start/pricing
-    - https://docs.mistral.ai/getting-started/pricing/
+    - https://docs.mistral.ai/inference/model-selection
     - https://www.together.ai/pricing
-    - https://groq.com/pricing/
+    - https://console.groq.com/docs/models
     - https://fireworks.ai/pricing
 """
 
@@ -49,7 +49,11 @@ class PricingSource(StrEnum):
 # Keep sorted within each provider block.
 
 PRICING: dict[str, tuple[float, float]] = {
-    # ── Anthropic (validated 2026-04-16) ──
+    # ── Anthropic (validated 2026-11-27) ──
+    "claude-fable-5-2": (8.0, 40.0),
+    "claude-opus-5-5": (4.0, 20.0),
+    "claude-sonnet-5-5": (2.0, 10.0),
+    "claude-haiku-5-5": (0.10, 0.50),
     "claude-opus-4-20250514": (15.0, 75.0),
     "claude-sonnet-4-20250514": (3.0, 15.0),
     "claude-haiku-4-5-20251001": (1.0, 5.0),
@@ -58,7 +62,10 @@ PRICING: dict[str, tuple[float, float]] = {
     "claude-opus-4-5-20250918": (5.0, 25.0),
     "claude-opus-4-6-20250918": (5.0, 25.0),
     "claude-opus-4-7-20260401": (5.0, 25.0),
-    # ── OpenAI (validated 2026-04-16) ──
+    # ── OpenAI (validated 2026-11-27) ──
+    "gpt-6.2-astra": (8.0, 40.0),
+    "gpt-6.2-sol": (2.0, 10.0),
+    "gpt-6-luna": (0.10, 0.50),
     "gpt-4o": (2.5, 10.0),
     "gpt-4o-mini": (0.15, 0.6),
     "gpt-4.1": (2.0, 8.0),
@@ -68,29 +75,40 @@ PRICING: dict[str, tuple[float, float]] = {
     "o3": (2.0, 8.0),
     "o3-mini": (1.1, 4.4),
     "o4-mini": (1.1, 4.4),
-    # ── Google (validated 2026-04-16) ──
+    # ── Google (validated 2026-11-27) ──
+    "gemini-4-hydrogen": (1.50, 7.50),
+    "gemini-3.8-flash": (0.75, 3.75),
+    "gemini-3.5-flash-lite": (0.30, 2.50),
     "gemini-2.5-pro": (1.25, 10.0),
     "gemini-2.5-pro-preview-03-25": (1.25, 10.0),
     "gemini-2.5-flash": (0.30, 2.50),
     "gemini-2.5-flash-preview-04-17": (0.30, 2.50),
     "gemini-2.0-flash": (0.10, 0.40),
-    # ── xAI / Grok (validated 2026-04-16) ──
+    # ── xAI / Grok (validated 2026-11-27) ──
+    "grok-4.7": (2.0, 6.0),
+    "grok-4.3": (1.25, 2.50),
     "grok-4": (2.0, 6.0),
     "grok-4.20-0309": (2.0, 6.0),
     "grok-4-1-fast": (0.20, 0.50),
     "grok-3": (3.0, 15.0),
     "grok-2": (2.0, 10.0),
-    # ── DeepSeek (validated 2026-04-16, V3.2 unified pricing) ──
+    # ── DeepSeek (validated 2026-11-27, peak rates) ──
+    "deepseek-v4-pro": (1.32, 3.96),
+    "deepseek-flash": (0.30, 1.20),
     "deepseek-chat": (0.28, 0.42),
     "deepseek-reasoner": (0.28, 0.42),
     # ── Mistral ──
+    "mistral-large-4": (2.0, 6.0),
+    "mistral-small-4": (0.10, 0.30),
     "mistral-large-latest": (2.0, 6.0),
     "mistral-small-latest": (0.10, 0.30),
     # ── Together AI ──
     "meta-llama/Llama-3.3-70B-Instruct-Turbo": (0.88, 0.88),
     "meta-llama/Llama-3.1-70B-Instruct-Turbo": (0.88, 0.88),
     "meta-llama/Llama-3.1-8B-Instruct-Turbo": (0.18, 0.18),
-    # ── Groq (validated 2026-04-16) ──
+    # ── Groq (validated 2026-11-27) ──
+    "openai/gpt-oss-120b": (0.15, 0.60),
+    "openai/gpt-oss-20b": (0.075, 0.30),
     "llama-3.3-70b-versatile": (0.59, 0.79),
     "llama-3.1-8b-instant": (0.05, 0.08),
     "llama-4-scout-17b-16e-instruct": (0.11, 0.34),
@@ -121,6 +139,10 @@ PRICING: dict[str, tuple[float, float]] = {
 
 CACHE_PRICING: dict[str, tuple[float, float]] = {
     # ── Anthropic (cache_read = 0.1x input, cache_write_5m = 1.25x input) ──
+    "claude-fable-5-2": (0.80, 10.0),
+    "claude-opus-5-5": (0.40, 5.0),
+    "claude-sonnet-5-5": (0.20, 2.5),
+    "claude-haiku-5-5": (0.01, 0.125),
     "claude-opus-4-20250514": (1.50, 18.75),
     "claude-sonnet-4-20250514": (0.30, 3.75),
     "claude-haiku-4-5-20251001": (0.10, 1.25),
@@ -133,8 +155,12 @@ CACHE_PRICING: dict[str, tuple[float, float]] = {
     # ── OpenAI (cache_read on prompt_tokens_details.cached_tokens) ──
     # OpenAI doesn't separately bill cache writes — the discount only
     # applies on reads. We map cache_read = 0.5x input for gpt-4o /
-    # gpt-4.1 families, and 0.25x for o-series. cache_creation = input
-    # rate (no surcharge — fresh prompts cost normal input).
+    # gpt-4.1 families, and 0.05x for gpt-6.x (published cached rates).
+    # cache_creation = input rate (no surcharge — fresh prompts cost
+    # normal input).
+    "gpt-6.2-astra": (0.40, 8.0),
+    "gpt-6.2-sol": (0.10, 2.0),
+    "gpt-6-luna": (0.005, 0.10),
     "gpt-4o": (1.25, 2.5),
     "gpt-4o-mini": (0.075, 0.15),
     "gpt-4.1": (0.50, 2.0),
@@ -154,15 +180,15 @@ DEFAULT_PRICING: tuple[float, float] = (3.0, 15.0)
 # Per-provider fallbacks preserve the old per-file defaults so a missing
 # model doesn't cross-contaminate cost estimates between providers.
 PROVIDER_DEFAULT_PRICING: dict[str, tuple[float, float]] = {
-    "anthropic": (3.0, 15.0),
-    "openai": (2.5, 10.0),
-    "google": (0.30, 2.50),
+    "anthropic": (2.0, 10.0),
+    "openai": (2.0, 10.0),
+    "google": (1.50, 7.50),
     "ollama": (0.0, 0.0),  # local inference — free
     "xai": (2.0, 6.0),
-    "deepseek": (0.28, 0.42),
+    "deepseek": (1.32, 3.96),
     "mistral": (2.0, 6.0),
     "together": (0.88, 0.88),
-    "groq": (0.59, 0.79),
+    "groq": (0.15, 0.60),
     "fireworks": (0.90, 0.90),
 }
 

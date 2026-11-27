@@ -22,9 +22,12 @@ _SYSTEM_PROMPT = (
 
 # Preferred models for classification (cheapest first)
 _PREFERRED_MODELS: tuple[str, ...] = (
+    "gpt-6-luna",
     "gpt-4o-mini",
     "gpt-4o-mini-2024-07-18",
+    "gemini-3.5-flash-lite",
     "gemini-2.0-flash",
+    "claude-haiku-5-5",
     "claude-3-5-haiku-20241022",
 )
 

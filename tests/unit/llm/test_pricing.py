@@ -108,27 +108,30 @@ class TestPricingBaseline:
 
     _BASELINE: dict[str, tuple[float, float]] = {
         # Anthropic
-        "claude-sonnet-4-20250514": (3.0, 15.0),
-        "claude-haiku-4-5-20251001": (1.0, 5.0),
-        "claude-opus-4-7-20260401": (5.0, 25.0),
+        "claude-sonnet-5-5": (2.0, 10.0),
+        "claude-haiku-5-5": (0.10, 0.50),
+        "claude-opus-5-5": (4.0, 20.0),
         # OpenAI
-        "gpt-4o": (2.5, 10.0),
-        "gpt-4o-mini": (0.15, 0.6),
-        "o3": (2.0, 8.0),
-        "o3-mini": (1.1, 4.4),
+        "gpt-6.2-sol": (2.0, 10.0),
+        "gpt-6-luna": (0.10, 0.50),
+        "gpt-6.2-astra": (8.0, 40.0),
         # Google
-        "gemini-2.5-flash": (0.30, 2.50),
-        "gemini-2.5-pro": (1.25, 10.0),
+        "gemini-4-hydrogen": (1.50, 7.50),
+        "gemini-3.5-flash-lite": (0.30, 2.50),
         # DeepSeek
-        "deepseek-chat": (0.28, 0.42),
-        "deepseek-reasoner": (0.28, 0.42),
+        "deepseek-v4-pro": (1.32, 3.96),
+        "deepseek-flash": (0.30, 1.20),
         # xAI
-        "grok-4": (2.0, 6.0),
+        "grok-4.7": (2.0, 6.0),
+        "grok-4.3": (1.25, 2.50),
         # Groq
-        "llama-3.3-70b-versatile": (0.59, 0.79),
-        "llama-3.1-8b-instant": (0.05, 0.08),
+        "openai/gpt-oss-120b": (0.15, 0.60),
+        "openai/gpt-oss-20b": (0.075, 0.30),
         # Together
         "meta-llama/Llama-3.3-70B-Instruct-Turbo": (0.88, 0.88),
+        # Mistral
+        "mistral-large-4": (2.0, 6.0),
+        "mistral-small-4": (0.10, 0.30),
     }
 
     @pytest.mark.parametrize("model", list(_BASELINE.keys()))
@@ -142,10 +145,12 @@ class TestPricingBaseline:
         assert PROVIDER_DEFAULT_PRICING["ollama"] == (0.0, 0.0)
 
     def test_provider_defaults_updated(self) -> None:
-        assert PROVIDER_DEFAULT_PRICING["openai"] == (2.5, 10.0)
-        assert PROVIDER_DEFAULT_PRICING["deepseek"] == (0.28, 0.42)
+        assert PROVIDER_DEFAULT_PRICING["openai"] == (2.0, 10.0)
+        assert PROVIDER_DEFAULT_PRICING["deepseek"] == (1.32, 3.96)
         assert PROVIDER_DEFAULT_PRICING["xai"] == (2.0, 6.0)
-        assert PROVIDER_DEFAULT_PRICING["google"] == (0.30, 2.50)
+        assert PROVIDER_DEFAULT_PRICING["google"] == (1.50, 7.50)
+        assert PROVIDER_DEFAULT_PRICING["anthropic"] == (2.0, 10.0)
+        assert PROVIDER_DEFAULT_PRICING["groq"] == (0.15, 0.60)
 
 
 class TestPricingSource:

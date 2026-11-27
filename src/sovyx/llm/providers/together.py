@@ -8,9 +8,10 @@ _TOGETHER_CONFIG = ProviderConfig(
     name="together",
     api_url="https://api.together.xyz/v1/chat/completions",
     api_key_env="TOGETHER_API_KEY",
-    default_model="meta-llama/Llama-3.1-70B-Instruct-Turbo",
-    supported_prefixes=("meta-llama/", "mistralai/", "Qwen/", "google/"),
+    default_model="meta-llama/Llama-3.3-70B-Instruct-Turbo",
+    supported_prefixes=("meta-llama/", "mistralai/", "Qwen/", "google/", "deepseek-ai/"),
     context_windows={
+        "meta-llama/Llama-3.3-70B-Instruct-Turbo": 131_072,
         "meta-llama/Llama-3.1-70B-Instruct-Turbo": 131_072,
         "meta-llama/Llama-3.1-8B-Instruct-Turbo": 131_072,
     },

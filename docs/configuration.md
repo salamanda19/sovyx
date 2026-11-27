@@ -215,8 +215,8 @@ ocean:
 ```yaml
 llm:
   default_provider: anthropic              # "" for auto-detect
-  default_model: claude-sonnet-4-20250514  # "" for auto-detect
-  fast_model: claude-3-5-haiku-20241022    # "" for auto-detect
+  default_model: claude-sonnet-5-5  # "" for auto-detect
+  fast_model: claude-haiku-5-5      # "" for auto-detect
   local_model: llama3.2:1b                 # Ollama fallback
   temperature: 0.7
   streaming: true
@@ -352,8 +352,8 @@ personality:
 
 llm:
   default_provider: anthropic
-  default_model: claude-sonnet-4-20250514
-  fast_model: claude-3-5-haiku-20241022
+  default_model: claude-sonnet-5-5
+  fast_model: claude-haiku-5-5
   temperature: 0.7
   budget_daily_usd: 5.0
   budget_per_conversation_usd: 1.0

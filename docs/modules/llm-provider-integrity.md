@@ -145,7 +145,7 @@ every tick — the endpoint is cheap and idempotent.
   "configured_count": 2,
   "available_count": 2,
   "default_provider": "anthropic",
-  "default_model": "claude-sonnet-4-6",
+  "default_model": "claude-sonnet-5-5",
   "scan_duration_ms": 0.04,
   "per_provider": [
     {"name": "anthropic", "env_var": "ANTHROPIC_API_KEY", "configured": true, "reachable": null, "failure_reason": null},

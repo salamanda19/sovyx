@@ -215,18 +215,18 @@ class TestModelSelection:
     def test_low_complexity_fast_model(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
         phase = ThinkPhase(_mock_assembler(), _mock_router(), MindConfig(name="Aria"))
-        assert phase._select_model(0.1) == "claude-3-5-haiku-20241022"
+        assert phase._select_model(0.1) == "claude-haiku-5-5"
 
     def test_high_complexity_default_model(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
         phase = ThinkPhase(_mock_assembler(), _mock_router(), MindConfig(name="Aria"))
-        assert phase._select_model(0.5) == "claude-sonnet-4-20250514"
+        assert phase._select_model(0.5) == "claude-sonnet-5-5"
 
     def test_boundary_complexity(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
         phase = ThinkPhase(_mock_assembler(), _mock_router(), MindConfig(name="Aria"))
-        assert phase._select_model(0.3) == "claude-sonnet-4-20250514"
-        assert phase._select_model(0.29) == "claude-3-5-haiku-20241022"
+        assert phase._select_model(0.3) == "claude-sonnet-5-5"
+        assert phase._select_model(0.29) == "claude-haiku-5-5"
 
     async def test_model_passed_to_router(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
@@ -234,7 +234,7 @@ class TestModelSelection:
         phase = ThinkPhase(_mock_assembler(), router, MindConfig(name="Aria"))
         await phase.process(_perception(complexity=0.1), MIND, [])
         call_kwargs = router.generate.call_args.kwargs
-        assert call_kwargs["model"] == "claude-3-5-haiku-20241022"
+        assert call_kwargs["model"] == "claude-haiku-5-5"
 
 
 class TestThinkPhaseWithPlugins:

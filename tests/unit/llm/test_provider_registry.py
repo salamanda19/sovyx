@@ -111,10 +111,10 @@ class TestStrEnumValueEquality:
 
 class TestDefaultModel:
     def test_anthropic_default(self) -> None:
-        assert LLMProviderKey.ANTHROPIC.default_model == "claude-sonnet-4-6"
+        assert LLMProviderKey.ANTHROPIC.default_model == "claude-sonnet-5-5"
 
     def test_openai_default(self) -> None:
-        assert LLMProviderKey.OPENAI.default_model == "gpt-4o-mini"
+        assert LLMProviderKey.OPENAI.default_model == "gpt-6.2-sol"
 
     def test_ollama_default_is_empty(self) -> None:
         """Ollama defers to list_models() at boot; default empty."""

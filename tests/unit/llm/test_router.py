@@ -292,13 +292,14 @@ class TestPricingTable:
 
     def test_all_known_models_have_pricing(self) -> None:
         known = [
-            "claude-sonnet-4-20250514",
-            "claude-3-5-haiku-20241022",
-            "claude-opus-4-20250514",
-            "gpt-4o",
-            "gpt-4o-mini",
-            "o1",
-            "o3-mini",
+            "claude-sonnet-5-5",
+            "claude-haiku-5-5",
+            "claude-opus-5-5",
+            "gpt-6.2-sol",
+            "gpt-6-luna",
+            "gpt-6.2-astra",
+            "gemini-4-hydrogen",
+            "gemini-3.5-flash-lite",
         ]
         for m in known:
             inp, out = LLMRouter._get_pricing(m)
@@ -413,19 +414,19 @@ class TestSelectModel:
     """Tests for select_model_for_complexity function."""
 
     def test_simple_selects_cheap(self) -> None:
-        available = ["claude-sonnet-4-20250514", "gemini-2.0-flash", "gpt-4o"]
+        available = ["claude-sonnet-5-5", "gemini-3.5-flash-lite", "gpt-6.2-sol"]
         model = select_model_for_complexity(ComplexityLevel.SIMPLE, available)
-        assert model == "gemini-2.0-flash"
+        assert model == "gemini-3.5-flash-lite"
 
     def test_complex_selects_powerful(self) -> None:
-        available = ["gemini-2.0-flash", "claude-sonnet-4-20250514", "gpt-4o-mini"]
+        available = ["gemini-3.5-flash-lite", "claude-sonnet-5-5", "gpt-6-luna"]
         model = select_model_for_complexity(ComplexityLevel.COMPLEX, available)
-        assert model == "claude-sonnet-4-20250514"
+        assert model == "claude-sonnet-5-5"
 
     def test_moderate_selects_first(self) -> None:
-        available = ["gemini-2.0-flash", "gpt-4o"]
+        available = ["gemini-3.5-flash-lite", "gpt-6.2-sol"]
         model = select_model_for_complexity(ComplexityLevel.MODERATE, available)
-        assert model == "gemini-2.0-flash"
+        assert model == "gemini-3.5-flash-lite"
 
     def test_empty_available_returns_none(self) -> None:
         model = select_model_for_complexity(ComplexityLevel.SIMPLE, [])

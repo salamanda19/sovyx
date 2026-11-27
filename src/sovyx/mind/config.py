@@ -50,9 +50,9 @@ class LLMConfig(BaseModel):
     When ``sovyx start`` runs, the model_validator resolves empties based
     on which API keys are present in the environment:
 
-        - ANTHROPIC_API_KEY → claude-sonnet-4-20250514 (preferred)
-        - OPENAI_API_KEY → gpt-4o
-        - GOOGLE_API_KEY → gemini-2.5-pro-preview-03-25
+        - ANTHROPIC_API_KEY → claude-sonnet-5-5 (preferred)
+        - OPENAI_API_KEY → gpt-6.2-sol
+        - GOOGLE_API_KEY → gemini-4-hydrogen
         - None → error at startup with clear message
 
     Users can always override by setting explicit values in mind.yaml.
@@ -92,13 +92,13 @@ class LLMConfig(BaseModel):
         # Priority: Anthropic > OpenAI > Google > xAI > DeepSeek >
         # Mistral > Groq > Together > Fireworks.
         _default_chain: list[tuple[bool, str, str]] = [
-            (has_anthropic, "anthropic", "claude-sonnet-4-20250514"),
-            (has_openai, "openai", "gpt-4o"),
-            (has_google, "google", "gemini-2.5-pro-preview-03-25"),
-            (has_xai, "xai", "grok-2"),
-            (has_deepseek, "deepseek", "deepseek-chat"),
-            (has_mistral, "mistral", "mistral-large-latest"),
-            (has_groq, "groq", "llama-3.1-70b-versatile"),
+            (has_anthropic, "anthropic", "claude-sonnet-5-5"),
+            (has_openai, "openai", "gpt-6.2-sol"),
+            (has_google, "google", "gemini-4-hydrogen"),
+            (has_xai, "xai", "grok-4.7"),
+            (has_deepseek, "deepseek", "deepseek-v4-pro"),
+            (has_mistral, "mistral", "mistral-large-4"),
+            (has_groq, "groq", "openai/gpt-oss-120b"),
         ]
 
         if not self.default_model:
@@ -115,17 +115,19 @@ class LLMConfig(BaseModel):
 
         if not self.fast_model:
             if has_anthropic:
-                self.fast_model = "claude-3-5-haiku-20241022"
+                self.fast_model = "claude-haiku-5-5"
             elif has_openai:
-                self.fast_model = "gpt-4o-mini"
+                self.fast_model = "gpt-6-luna"
             elif has_google:
-                self.fast_model = "gemini-2.0-flash"
+                self.fast_model = "gemini-3.5-flash-lite"
+            elif has_xai:
+                self.fast_model = "grok-4.3"
             elif has_deepseek:
-                self.fast_model = "deepseek-chat"
+                self.fast_model = "deepseek-flash"
             elif has_mistral:
-                self.fast_model = "mistral-small-latest"
+                self.fast_model = "mistral-small-4"
             elif has_groq:
-                self.fast_model = "mixtral-8x7b-32768"
+                self.fast_model = "openai/gpt-oss-20b"
 
         return self
 
@@ -787,7 +789,7 @@ def create_default_mind_config(name: str, data_dir: Path) -> Path:
 
     LLM provider/model fields are intentionally omitted so that
     runtime auto-detection (based on API keys) works at ``sovyx start``.
-    Users can add ``llm.default_model: gpt-4o`` to override.
+    Users can add ``llm.default_model: gpt-6.2-sol`` to override.
 
     Args:
         name: Name for the mind.

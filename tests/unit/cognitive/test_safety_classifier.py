@@ -69,7 +69,7 @@ def _make_mock_router(
     router = MagicMock()
 
     if available_models is None:
-        available_models = ["gpt-4o-mini", "claude-sonnet-4-20250514"]
+        available_models = ["gpt-6-luna", "claude-sonnet-5-5"]
 
     # Mock providers
     provider = MagicMock()
@@ -256,25 +256,25 @@ class TestSelectModel:
 
     def test_selects_cheapest_available(self) -> None:
         """Selects first preferred model that's available."""
-        router = _make_mock_router(available_models=["gpt-4o-mini", "gpt-4o"])
+        router = _make_mock_router(available_models=["gpt-6-luna", "gpt-6.2-sol"])
         model = _select_model(router)
-        assert model == "gpt-4o-mini"
+        assert model == "gpt-6-luna"
 
     def test_selects_second_preferred(self) -> None:
         """Falls through to second preference if first unavailable."""
-        router = _make_mock_router(available_models=["gemini-2.0-flash", "gpt-4o"])
+        router = _make_mock_router(available_models=["gemini-3.5-flash-lite", "gpt-6.2-sol"])
         model = _select_model(router)
-        assert model == "gemini-2.0-flash"
+        assert model == "gemini-3.5-flash-lite"
 
     def test_selects_haiku(self) -> None:
         """Selects Haiku when others unavailable."""
-        router = _make_mock_router(available_models=["claude-3-5-haiku-20241022", "gpt-4o"])
+        router = _make_mock_router(available_models=["claude-haiku-5-5", "gpt-6.2-sol"])
         model = _select_model(router)
-        assert model == "claude-3-5-haiku-20241022"
+        assert model == "claude-haiku-5-5"
 
     def test_returns_none_when_no_preferred(self) -> None:
         """Returns None when no preferred model is available."""
-        router = _make_mock_router(available_models=["gpt-4o", "claude-sonnet-4-20250514"])
+        router = _make_mock_router(available_models=["gpt-6.2-sol", "claude-sonnet-5-5"])
         model = _select_model(router)
         assert model is None
 
@@ -284,7 +284,7 @@ class TestSelectModel:
         provider = MagicMock()
         provider.is_available = False
         router._providers = [provider]
-        router._get_provider_models = MagicMock(return_value=["gpt-4o-mini"])
+        router._get_provider_models = MagicMock(return_value=["gpt-6-luna"])
 
         model = _select_model(router)
         assert model is None
@@ -519,11 +519,11 @@ class TestConstants:
         assert len(_PREFERRED_MODELS) > 0
 
     def test_preferred_models_are_cheap(self) -> None:
-        """Preferred models are budget-tier (mini/flash/haiku)."""
+        """Preferred models are budget-tier (mini/flash/haiku/luna)."""
         for model in _PREFERRED_MODELS:
-            assert any(tier in model.lower() for tier in ("mini", "flash", "haiku")), (
-                f"{model} doesn't look like a budget model"
-            )
+            assert any(
+                tier in model.lower() for tier in ("mini", "flash", "haiku", "luna")
+            ), f"{model} doesn't look like a budget model"
 
 
 # ── Property-Based Tests ────────────────────────────────────────────────

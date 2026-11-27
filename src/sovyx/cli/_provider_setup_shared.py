@@ -39,15 +39,15 @@ logger = logging.getLogger(__name__)
 
 
 _DEFAULT_MODEL_BY_PROVIDER: dict[str, str] = {
-    "anthropic": "claude-sonnet-4-20250514",
-    "openai": "gpt-4o",
-    "google": "gemini-2.5-pro-preview-03-25",
-    "xai": "grok-2",
-    "deepseek": "deepseek-chat",
-    "mistral": "mistral-large-latest",
-    "groq": "llama-3.1-70b-versatile",
-    "together": "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
-    "fireworks": "accounts/fireworks/models/llama-v3p1-70b-instruct",
+    "anthropic": "claude-sonnet-5-5",
+    "openai": "gpt-6.2-sol",
+    "google": "gemini-4-hydrogen",
+    "xai": "grok-4.7",
+    "deepseek": "deepseek-v4-pro",
+    "mistral": "mistral-large-4",
+    "groq": "openai/gpt-oss-120b",
+    "together": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+    "fireworks": "accounts/fireworks/models/llama-v3p3-70b-instruct",
     "ollama": "llama3.1:latest",
 }
 

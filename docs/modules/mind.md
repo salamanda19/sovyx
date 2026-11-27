@@ -24,13 +24,13 @@ When `default_model`, `default_provider`, or `fast_model` are empty strings, a `
 
 | Priority | Key | `default_model` | `fast_model` |
 |---|---|---|---|
-| 1 | `ANTHROPIC_API_KEY` | `claude-sonnet-4-20250514` | `claude-3-5-haiku-20241022` |
-| 2 | `OPENAI_API_KEY` | `gpt-4o` | `gpt-4o-mini` |
-| 3 | `GOOGLE_API_KEY` | `gemini-2.5-pro-preview-03-25` | `gemini-2.0-flash` |
-| 4 | `XGROK_API_KEY` | `grok-2` | — |
-| 5 | `DEEPSEEK_API_KEY` | `deepseek-chat` | `deepseek-chat` |
-| 6 | `MISTRAL_API_KEY` | `mistral-large-latest` | `mistral-small-latest` |
-| 7 | `GROQ_API_KEY` | `llama-3.1-70b-versatile` | `mixtral-8x7b-32768` |
+| 1 | `ANTHROPIC_API_KEY` | `claude-sonnet-5-5` | `claude-haiku-5-5` |
+| 2 | `OPENAI_API_KEY` | `gpt-6.2-sol` | `gpt-6-luna` |
+| 3 | `GOOGLE_API_KEY` | `gemini-4-hydrogen` | `gemini-3.5-flash-lite` |
+| 4 | `XGROK_API_KEY` | `grok-4.7` | `grok-4.3` |
+| 5 | `DEEPSEEK_API_KEY` | `deepseek-v4-pro` | `deepseek-flash` |
+| 6 | `MISTRAL_API_KEY` | `mistral-large-4` | `mistral-small-4` |
+| 7 | `GROQ_API_KEY` | `openai/gpt-oss-120b` | `openai/gpt-oss-20b` |
 
 ## Configuration
 

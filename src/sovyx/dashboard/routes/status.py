@@ -182,7 +182,7 @@ async def stats_breakdown(request: Request) -> JSONResponse:
           "cache_creation_tokens": 100,
           "by_phase": {"think": 0.8, "reflect": 0.3, "dream": 0.1, "unknown": 0.0},
           "by_provider": {"anthropic": 1.0, "openai": 0.234},
-          "by_model": {"claude-sonnet-4-20250514": 0.9, ...},
+          "by_model": {"claude-sonnet-5-5": 0.9, ...},
           "tokens_by_phase": {"think": 4000, "reflect": 800, ...}
         }
 

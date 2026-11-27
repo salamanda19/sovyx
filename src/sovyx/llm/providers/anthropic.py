@@ -67,7 +67,7 @@ class AnthropicProvider:
     async def generate(
         self,
         messages: Sequence[dict[str, str]],
-        model: str = "claude-sonnet-4-20250514",
+        model: str = "claude-sonnet-5-5",
         temperature: float = 0.7,
         max_tokens: int = 4096,
         tools: list[dict[str, Any]] | None = None,
@@ -228,7 +228,7 @@ class AnthropicProvider:
     async def stream(
         self,
         messages: Sequence[dict[str, str]],
-        model: str = "claude-sonnet-4-20250514",
+        model: str = "claude-sonnet-5-5",
         temperature: float = 0.7,
         max_tokens: int = 4096,
         tools: list[dict[str, Any]] | None = None,

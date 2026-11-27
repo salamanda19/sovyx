@@ -8,15 +8,18 @@ _OPENAI_CONFIG = ProviderConfig(
     name="openai",
     api_url="https://api.openai.com/v1/chat/completions",
     api_key_env="OPENAI_API_KEY",
-    default_model="gpt-4o",
-    supported_prefixes=("gpt-", "o1", "o3"),
+    default_model="gpt-6.2-sol",
+    supported_prefixes=("gpt-", "o1", "o3", "o4"),
     context_windows={
+        "gpt-6.2-sol": 1_050_000,
+        "gpt-6.2-astra": 1_050_000,
+        "gpt-6-luna": 1_050_000,
         "gpt-4o": 128_000,
         "gpt-4o-mini": 128_000,
         "o1": 200_000,
         "o3-mini": 200_000,
     },
-    default_context_window=128_000,
+    default_context_window=1_050_000,
 )
 
 

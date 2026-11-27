@@ -149,7 +149,7 @@ async def get_pricing_info(
     Response shape::
 
         {
-          "model": "claude-sonnet-4-20250514",
+          "model": "claude-sonnet-5-5",
           "provider": "anthropic",
           "input_per_1m_usd": 3.0,
           "output_per_1m_usd": 15.0,

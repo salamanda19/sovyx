@@ -8,13 +8,15 @@ _DEEPSEEK_CONFIG = ProviderConfig(
     name="deepseek",
     api_url="https://api.deepseek.com/v1/chat/completions",
     api_key_env="DEEPSEEK_API_KEY",
-    default_model="deepseek-chat",
+    default_model="deepseek-v4-pro",
     supported_prefixes=("deepseek-",),
     context_windows={
+        "deepseek-v4-pro": 1_048_576,
+        "deepseek-flash": 1_048_576,
         "deepseek-chat": 128_000,
         "deepseek-reasoner": 128_000,
     },
-    default_context_window=128_000,
+    default_context_window=1_048_576,
 )
 
 
