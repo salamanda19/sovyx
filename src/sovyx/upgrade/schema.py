@@ -446,9 +446,11 @@ class MigrationRunner:
         """
         self._backup_dir.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.datetime.now(tz=datetime.UTC).strftime("%Y%m%d_%H%M%S")
-        # Append monotonic counter to avoid collisions within the same second
-        suffix = int(time.monotonic() * 1_000_000) % 1_000_000
-        backup_path = self._backup_dir / f"sovyx_upgrade_{timestamp}_{suffix:06d}.db"
+        # perf_counter_ns — not monotonic()*1e6 % 1e6. Windows coarse
+        # clocks (AP #22, ~15.6 ms ticks) can return the same monotonic
+        # reading twice in one second, so VACUUM INTO collides with
+        # "output file already exists" on back-to-back runner.run() calls.
+        backup_path = self._backup_dir / f"sovyx_upgrade_{timestamp}_{time.perf_counter_ns()}.db"
 
         try:
             async with self._pool.write() as conn:

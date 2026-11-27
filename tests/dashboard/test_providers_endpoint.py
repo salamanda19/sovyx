@@ -310,9 +310,9 @@ class TestPricingInfoEndpoint:
         assert resp.status_code == 200
         data = resp.json()
         assert data["source"] == "provider_default"
-        # Anthropic provider default is the conservative Sonnet rate.
-        assert data["input_per_1m_usd"] == 3.0
-        assert data["output_per_1m_usd"] == 15.0
+        # Anthropic provider default tracks the current Sonnet rate.
+        assert data["input_per_1m_usd"] == 2.0
+        assert data["output_per_1m_usd"] == 10.0
 
     def test_unknown_everything_returns_global_default(
         self, app: TestClient, auth: dict[str, str]

@@ -483,6 +483,17 @@ class TestMigrationRunner:
         assert len(backups) >= 1
 
     @pytest.mark.asyncio()
+    async def test_consecutive_backups_use_distinct_paths(
+        self,
+        runner: MigrationRunner,
+    ) -> None:
+        """VACUUM INTO rejects an existing target; back-to-back backups
+        must never collide even under Windows coarse clocks (AP #22)."""
+        paths = [await runner._backup() for _ in range(3)]
+        assert len({str(p) for p in paths}) == 3
+        assert all(p.is_file() for p in paths)
+
+    @pytest.mark.asyncio()
     async def test_expand_contract_phases(
         self,
         runner: MigrationRunner,

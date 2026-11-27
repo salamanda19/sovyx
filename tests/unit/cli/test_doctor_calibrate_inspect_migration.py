@@ -74,7 +74,11 @@ class TestInspectMigrationMutex:
         result = runner.invoke(app, ["doctor", "voice", "--inspect-migration"])
         assert result.exit_code != 0
         clean = _strip_ansi(result.output)
-        assert "require --calibrate" in clean
+        # Rich panels wrap mid-phrase and leave │ at the seam; strip
+        # box-drawing then collapse whitespace before matching.
+        no_box = clean.translate(str.maketrans("", "", "│┌┐└┘├┤┬┴┼─"))
+        compact = "".join(no_box.split())
+        assert "require--calibrate" in compact
 
     def test_inspect_migration_with_show_rejected(self) -> None:
         result = runner.invoke(

@@ -1447,14 +1447,16 @@ class TestCalibratePrereqGate:
         ):
             result = runner.invoke(app, ["doctor", "voice", "--calibrate", "--non-interactive"])
 
-        # Stdout banner lists the three paths.
+        # Stdout banner lists the three paths. Collapse Rich wrap so
+        # Windows COLUMNS wrapping cannot split the asserted tokens.
         clean = _strip_ansi(result.output)
+        compact = "".join(clean.split())
         assert "Interactive:" in clean
         assert "Scripted:" in clean
         assert "Inline:" in clean
-        assert "sovyx voice setup --mind-id default" in clean
-        assert "--input-device 'NAME' --non-interactive" in clean
-        assert "sovyx doctor voice --calibrate --input-device 'NAME' --non-interactive" in clean
+        assert "sovyxvoicesetup--mind-iddefault" in compact
+        assert "--input-device'NAME'--non-interactive" in compact
+        assert "sovyxdoctorvoice--calibrate--input-device'NAME'--non-interactive" in compact
         # Structured payload mirrors the operator banner so JSON consumers
         # see the same three-path remediation without parsing stdout.
         error_calls = [

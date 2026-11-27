@@ -521,9 +521,9 @@ class TestConstants:
     def test_preferred_models_are_cheap(self) -> None:
         """Preferred models are budget-tier (mini/flash/haiku/luna)."""
         for model in _PREFERRED_MODELS:
-            assert any(
-                tier in model.lower() for tier in ("mini", "flash", "haiku", "luna")
-            ), f"{model} doesn't look like a budget model"
+            assert any(tier in model.lower() for tier in ("mini", "flash", "haiku", "luna")), (
+                f"{model} doesn't look like a budget model"
+            )
 
 
 # ── Property-Based Tests ────────────────────────────────────────────────

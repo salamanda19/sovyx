@@ -261,5 +261,5 @@ class TestReActDepthRespected:
             perception,
         )
 
-        # Max 3 re-invocations + initial = at most 3 calls to generate
-        assert call_count <= 3
+        # Max 3 ReAct re-invocations + one tools-off final-answer turn.
+        assert call_count <= 4

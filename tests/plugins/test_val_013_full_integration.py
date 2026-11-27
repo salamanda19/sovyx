@@ -135,7 +135,8 @@ class TestToolChaining:
 
         assert result.response_text == "The final answer is 40."
         assert len(result.tool_calls_made) == 2
-        assert call_count == 2
+        # One mid-loop re-invoke + one stop reply + one tools-off final turn.
+        assert call_count == 3
 
 
 class TestDisabledPluginNoTools:

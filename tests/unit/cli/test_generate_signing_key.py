@@ -84,8 +84,11 @@ class TestGenerateSigningKey:
         assert priv.is_file()
         assert pub.is_file()
         # Stdout carries the canonical paths and a fingerprint.
-        assert str(priv) in result.output
-        assert str(pub) in result.output
+        # Rich may wrap long Windows temp paths across lines — compare
+        # against whitespace-collapsed output.
+        compact = "".join(result.output.split())
+        assert "".join(str(priv).split()) in compact
+        assert "".join(str(pub).split()) in compact
         # Structured event emitted via logger.info with source="cli", mode="created".
         spy.info.assert_called_once()
         args, kwargs = spy.info.call_args

@@ -154,11 +154,11 @@ class TestOpenAIGaps:
         await provider.close()
 
     def test_default_context_window(self) -> None:
-        """Unknown model returns default 128K context window."""
+        """Unknown model returns the current default context window."""
         from sovyx.llm.providers.openai import OpenAIProvider
 
         provider = OpenAIProvider(api_key="test-key")
-        assert provider.get_context_window("gpt-future-model") == 128_000
+        assert provider.get_context_window("gpt-future-model") == 1_050_000
 
 
 # ── Ollama ──
@@ -217,12 +217,12 @@ class TestOllamaOpenAICoverageGaps:
         assert window > 0
 
     def test_openai_context_window_default(self) -> None:
-        """get_context_window without model returns 128k."""
+        """get_context_window without model returns the current default."""
         from sovyx.llm.providers.openai import OpenAIProvider
 
         provider = OpenAIProvider(api_key="sk-test")
         window = provider.get_context_window()
-        assert window == 128_000  # noqa: PLR2004
+        assert window == 1_050_000  # noqa: PLR2004
 
     @pytest.mark.asyncio()
     async def test_ollama_unexpected_error_at_end_of_retries(self) -> None:

@@ -217,6 +217,7 @@ module = [
     # WindowsMMNotificationListener.register() with try/except
     # ImportError so non-Windows / slim-CI builds run cleanly.
     "comtypes.*",
+    "pyaec.*",
     # Optional sovyx[otel] extras — installed only when operators wire
     # an OTLP collector. Lazy-imported inside ``observability.otel`` so
     # the engine works without them; mypy needs the override since the

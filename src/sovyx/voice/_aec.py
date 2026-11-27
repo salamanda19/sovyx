@@ -283,7 +283,7 @@ class SpeexAecProcessor:
         it into :class:`AecLoadError` so the public surface speaks the
         AEC-domain error type.
         """
-        import pyaec  # type: ignore[import-untyped]  # noqa: PLC0415 — lazy by design; pyaec ships no py.typed marker
+        import pyaec  # noqa: PLC0415 — lazy by design; pyaec is an optional voice extra
 
         return pyaec
 
